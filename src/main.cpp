@@ -274,20 +274,15 @@ void manual_sort() {
 
 // Color Sorting 
 void colorSort() {
-
-    //pros::vision_object_s_t redBlock = visionSensor.get_by_sig(0,RED_SIG_ID);
-   // pros::vision_object_s_t blueBlock = visionSensor.get_by_sig(0, BLUE_SIG_ID);
    pros::vision_object_s_t block = visionSensor.get_by_size(0);
 
-    if (block.signature == RED_SIG.id && block.width > 100) {
-        sort(127);
-        pros::delay(500);
-    }
-    else if (block.signature == BLUE_SIG.id && block.width > 100) {
-        sort(-127);
-        pros::delay(500);
-    }
-    else {
-        sort(0);
-    }
+   if (block.signature == RED_SIG.id && block.width > 100) {
+    sort(127);
+    pros::delay(500);
+   } else if (block.signature == BLUE_SIG.id && block.width > 100) {
+    sort(-127);
+    pros::delay(500);
+   } else {
+    sort(0);
+   }
 }
