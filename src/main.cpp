@@ -149,6 +149,11 @@ ASSET(example_txt); // '.' replaced with "_" to make c++ happy
  * This is an example autonomous routine which demonstrates a lot of the features LemLib has to offer
  */
 void autonomous() {
+
+    //chassis.setPose(0,0,0);
+    //chassis.moveToPose(10,10, 0, 4000);
+
+
 	/*
     // Move to x: 20 and y: 15, and face heading 90. Timeout set to 4000 ms
     chassis.moveToPose(20, 15, 90, 4000);
@@ -210,7 +215,7 @@ void opcontrol() {
         int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
         // move the chassis with curvature drive
 		// chassis.tank(leftY, rightX);
-        chassis.arcade(-rightX, -leftY);
+        chassis.arcade(-rightX, -leftY, false, .3);
         // delay to save resources
         pros::delay(10);
 
@@ -238,7 +243,7 @@ void opcontrol() {
 
 // Intake/Outtake Motor Function
 void in_out(int in_out_power) {
-	intakeMotor.move(in_out_power);
+	intakeMotor.move(in_out_power*.50);
 }
 
 // Sort Motor Function
@@ -274,15 +279,20 @@ void manual_sort() {
 
 // Color Sorting 
 void colorSort() {
+
+    //pros::vision_object_s_t redBlock = visionSensor.get_by_sig(0,RED_SIG_ID);
+   // pros::vision_object_s_t blueBlock = visionSensor.get_by_sig(0, BLUE_SIG_ID);
    pros::vision_object_s_t block = visionSensor.get_by_size(0);
 
-   if (block.signature == RED_SIG.id && block.width > 100) {
-    sort(127);
-    pros::delay(500);
-   } else if (block.signature == BLUE_SIG.id && block.width > 100) {
-    sort(-127);
-    pros::delay(500);
-   } else {
-    sort(0);
-   }
+    if (block.signature == RED_SIG.id && block.width > 200) {
+        sort(127);
+        pros::delay(200);
+    }
+    else if (block.signature == BLUE_SIG.id && block.width > 200) {
+        sort(-127);
+        pros::delay(100);
+    }
+    else {
+        sort(0);
+    }
 }
