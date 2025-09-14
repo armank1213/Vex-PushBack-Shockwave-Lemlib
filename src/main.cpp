@@ -1,6 +1,7 @@
 #include "main.h"
 #include "pros/adi.hpp"
 #include "lemlib/api.hpp" // IWYU pragma: keep
+#include "pros/vision.h"
 
 // controller
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
@@ -24,8 +25,8 @@ pros::MotorGroup int_outGroup({17, 6});
 // Vision & Signatures
 // vision sensor signature IDs
 pros::Vision visionSensor(8);
-pros::vision_signature_s_t BLUE_SIG = pros::Vision::signature_from_utility(2, -2867, -2599, -2733, 8151, 8837, 8494, 4.3, 0);
-pros::vision_signature_s_t RED_SIG = pros::Vision::signature_from_utility(3, 6769, 9551, 8160, -1367, -449, -908, 2.2, 0);
+pros::vision_signature_s_t BLUE_SIG  = pros::Vision::signature_from_utility(1, -4089, -2329, -3210, 2711, 4961, 3836, 2.100, 0);
+pros::vision_signature_s_t RED_SIG  = pros::Vision::signature_from_utility(2, 4861, 11873, 8368, -1889, -225, -1058, 1.300, 0);
 
 // Pneumatics
 pros::adi::Pneumatics matchLoad('H', false);
@@ -279,16 +280,13 @@ void manual_sort() {
 
 // Color Sorting 
 void colorSort() {
-
-    //pros::vision_object_s_t redBlock = visionSensor.get_by_sig(0,RED_SIG_ID);
-   // pros::vision_object_s_t blueBlock = visionSensor.get_by_sig(0, BLUE_SIG_ID);
    pros::vision_object_s_t block = visionSensor.get_by_size(0);
 
-    if (block.signature == RED_SIG.id && block.width > 200) {
+    if (block.signature == RED_SIG.id && block.width > 100 && block.height > 95) {
         sort(127);
         pros::delay(200);
     }
-    else if (block.signature == BLUE_SIG.id && block.width > 200) {
+    else if (block.signature == BLUE_SIG.id && block.width > 100) {
         sort(-127);
         pros::delay(100);
     }
