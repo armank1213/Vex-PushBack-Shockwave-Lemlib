@@ -38,24 +38,7 @@ void limiterToggle() {
     }
     lastYButtonState = currentY;
 }
-void limiterLight() {
-    static bool limiterLightToggle = false;
-    static bool lastYButtonState = false;
 
-    bool currentY = controller.get_digital(pros::E_CONTROLLER_DIGITAL_X);
-
-    if (currentY && !lastYButtonState) {
-        limiterLightToggle = !limiterLightToggle;
-        if (bool limiterLightToggle = true) { // button indicator
-            limiter_light.set_led_pwm(100);
-        } else {
-            limiter_light.set_led_pwm(0);
-        }
-    }
-
-    lastYButtonState = currentY;
-
-}
 void wingToggle() {
 
     static bool wingPistonToggle = false;

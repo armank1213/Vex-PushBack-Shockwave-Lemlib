@@ -8,6 +8,7 @@
 #include "robot/distance_reset.hpp" // IWYU pragma: keep
 #include "robot/motors.hpp" 
 #include "robot/color_sort.hpp" // IWYU pragma: keep
+#include "robot/pneumatics.hpp"
 
 /**
  * Runs initialization code. This occurs as soon as the program is started.
@@ -68,6 +69,8 @@ void autonomous() {
         left_auton();
     } else if (autonSelection == 1) {
         right_auton();
+    } else if (autonSelection == 2) {
+        skills_auton();
     }
 }
 
@@ -75,7 +78,7 @@ void opcontrol() {
     leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
     rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
-    // Matchload piston variables
+    /*// Matchload piston variables
     bool matchloadTogle = false;
     static bool lastAButtonState = false;
 
@@ -89,7 +92,7 @@ void opcontrol() {
  
     // Color sorting variables
     static int sortMode = 0;
-    static bool LastB_ButtonState = false;
+    static bool LastB_ButtonState = false;*/
 
     // Anti-jam control variables
     const bool allianceColor = true; // true for red, false for blue
@@ -98,13 +101,13 @@ void opcontrol() {
     while (true) {
         // Get joystick positions
         int leftY = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
-        int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
+        int rightY = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y);
 
         // Chassis Drive Functions
-        //chassis.arcade(leftY, rightY, false, .6);
+        //chassis.arcade(leftY, rightX, false, .6);
 
         // lmao deal with it naman + chey - achin (hella right - arman)
-        chassis.arcade(leftY, rightX, false, 0.6);
+        chassis.tank(leftY, rightY, false);
 
         //chassis.curvature(leftY, rightY, false);
 
@@ -113,9 +116,9 @@ void opcontrol() {
         outtakeControl();
         
         // Set light to 100% and get distance and color readings
-        colorSensor.set_led_pwm(100);
+        /*colorSensor.set_led_pwm(100);
         int distance = distanceSensor.get_distance();
-        double hue = colorSensor.get_hue();
+        double hue = colorSensor.get_hue();*/
     
 
         // Color sorting functions
@@ -133,23 +136,16 @@ void opcontrol() {
                 }
             }
         }*/
+
         // Matchload Pneumatics Toggle
         matchloadToggle();
-
         // Limiter Pneumatics Toggle
         limiterToggle();
-
-        
-
-        // if (limiter.is_extended()) { // limiter indicator
-           // limiter_light.set_led_pwm(100);
-      //  } else {
-       //     limiter_light.set_led_pwm(0);
-     //   }
-
         // Wing Mech Pneumatics Toggle
         wingToggle();
-        // Delay to save resources
+
+
+        // Delay to save resources and update lvgl timer
         lv_timer_handler();
         pros::delay(30);
     }

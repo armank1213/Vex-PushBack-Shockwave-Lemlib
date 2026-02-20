@@ -19,15 +19,14 @@ void left_auton() {
     // pros::delay(250);
     chassis.moveToPose(0, 32, -7, 2500, {.forwards = true, .lead = 0.8, .minSpeed=15.5}, false);
     //chassis.turnToHeading(-96, 2000);
-    chassis.moveToPose(0,27, -114, 2500, {.forwards = false, .lead = 0, .minSpeed=40}, false);
+    chassis.moveToPose(0,28, -114, 2500, {.forwards = false, .lead = 0, .minSpeed=40}, false);
     limiter.set_value(0);
     //middleMotor.move(100);
     outtake(-127);
-    pros::delay(500); // here
-    middleMotor.move(-127); // here
+    middleMotor.move(-127);
     pros::delay(1500);
     //chassis.moveToPose(-48, -15, -150, 3000, {.forwards = true, .lead = .6, .minSpeed=67}, false);
-    chassis.moveToPoint(-44, -7, 3000, {.forwards=true, .minSpeed=55});
+    chassis.moveToPoint(-44, -6.5, 3000, {.forwards=true, .minSpeed=55}); // originally -7 for y
     chassis.turnToHeading(-150, 1000);
     matchLoad.set_value(1);
     chassis.moveToPoint(-44, -25, 3000, {.forwards=true, .minSpeed=35}, true);
@@ -69,12 +68,9 @@ void right_auton() {
 
 }
 
-void skills() {
+void skills_auton() {
     chassis.setPose(0,0,0);
-    chassis.moveToPoint(0,33.5,1000);
-    chassis.turnToHeading(-90,1000);
-    matchLoad.set_value(1);
-    chassis.moveToPoint(-12.5,35.5,1000);
-    limiter.set_value(1);
-    intake(127);
+    intakeMotor.move(-127);
+    chassis.moveToPoint(0,-20,2000, {.forwards=false,.maxSpeed=50});
+    chassis.moveToPoint(0,25,2000, {.minSpeed = 80});
 }

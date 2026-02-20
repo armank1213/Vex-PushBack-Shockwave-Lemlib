@@ -20,7 +20,7 @@ void blue_colorSort(lv_event_t *e);
 // Button creation functions
 void left_Button(void);
 void right_Button(void);
-void redcolorSortButton(void);
+void skillsButton(void);
 void bluecolorSortButton(void);
 
 // Label creation functions
