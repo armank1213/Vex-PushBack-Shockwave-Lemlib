@@ -131,6 +131,7 @@ void opcontrol() {
        intakeControl();
 
 
+
        // Set light to 100% and get distance and color readings
        /*colorSensor.set_led_pwm(100);
        int distance = distanceSensor.get_distance();
@@ -158,7 +159,7 @@ void opcontrol() {
        // Matchload Pneumatics Toggle
        matchloadToggle();
        // Limiter Pneumatics Toggle
-       limiterToggle();
+       //limiterToggle();
        // Wing Mech Pneumatics Toggle
        wingToggle();
 

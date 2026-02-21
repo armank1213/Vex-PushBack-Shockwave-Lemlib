@@ -21,6 +21,11 @@ void middletake(int sortPower) {
 
 // Control functions
 void intakeControl() {
+    
+    
+    static bool middleScore_voltageToggle = false;
+    static bool lastBButtonState = false;
+
    if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R1)) {
        outtake(127);
        intake(127);
@@ -34,9 +39,13 @@ void intakeControl() {
        limiter_light.set_led_pwm(0);
    }
    else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_Y)) {//chey l1 naman R2
-      
        limiter.set_value(0);
        outtake(-127);
+       intake(127);
+   }
+   else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_B)) {//chey l1 naman R2
+       limiter.set_value(0);
+       outtake(35);
        intake(127);
    }
    else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L2)) {

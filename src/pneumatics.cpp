@@ -8,15 +8,15 @@ void matchloadToggle() {
 
     // Matchload piston variables
     static bool matchloadPistonToggle = false;
-    static bool lastAButtonState = false;
+    static bool lastRightButtonState = false;
 
     // Matchload Pneumatics Toggle
-    bool currentA = controller.get_digital(pros::E_CONTROLLER_DIGITAL_B);
-    if (currentA && !lastAButtonState) {
+    bool currentRight = controller.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT);
+    if (currentRight && !lastRightButtonState) {
         matchloadPistonToggle = !matchloadPistonToggle;
         matchLoad.set_value(matchloadPistonToggle);
     }
-    lastAButtonState = currentA;
+    lastRightButtonState = currentRight;
 }
 void limiterToggle() {
 
@@ -38,19 +38,18 @@ void limiterToggle() {
     }
     lastYButtonState = currentY;
 }
-
 void wingToggle() {
 
     static bool wingPistonToggle = false;
-    static bool lastXButtonState = false;
+    static bool lastL1ButtonState = false;
 
-    bool currentX = controller.get_digital(pros::E_CONTROLLER_DIGITAL_A);
+    bool currentL1 = controller.get_digital(pros::E_CONTROLLER_DIGITAL_L1);
         
-    if (currentX && !lastXButtonState) {
+    if (currentL1 && !lastL1ButtonState) {
         wingPistonToggle = !wingPistonToggle;
         wing.set_value(wingPistonToggle);
     }
     
-    lastXButtonState = currentX;
+    lastL1ButtonState = currentL1;
 }
 
