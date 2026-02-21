@@ -49,7 +49,7 @@ void skills_switchEvent(lv_event_t *e) {
 
 
 // switch functions
-void left_auton(void) {
+void left_switch(void) {
     lv_obj_t *leftswitch = lv_switch_create(lv_screen_active());
     lv_obj_add_event_cb(leftswitch, left_switchEvent, LV_EVENT_ALL, NULL);
     lv_obj_t *leftswitch_label = lv_label_create(leftswitch);
@@ -57,7 +57,7 @@ void left_auton(void) {
     lv_obj_align(leftswitch, LV_ALIGN_TOP_LEFT, 0,30);
 }
 
-void right_Button(void) {
+void right_switch(void) {
     lv_obj_t *rightswitch = lv_button_create(lv_screen_active());
     lv_obj_add_event_cb(rightswitch, right_switchEvent, LV_EVENT_ALL, NULL);
     lv_obj_t *rightswitch_label = lv_label_create(rightswitch);
@@ -67,7 +67,7 @@ void right_Button(void) {
 
 }
 
-void skills_Button(void) {
+void skills_switch(void) {
     lv_obj_t *skillsswitch= lv_button_create(lv_screen_active());
     lv_obj_add_event_cb(skillsswitch, skills_switchEvent, LV_EVENT_ALL, NULL);
     lv_obj_t *skillsswitch_label = lv_label_create(skillsswitch);
@@ -111,7 +111,7 @@ void initializeUI() {
     tDisplay();
     left_Button();
     right_Button();
-    skills_Button();
+    skills_switch();
 
     // Create a pros task that updates the vertical and horizontal rotation sensor measurements on the brain screen
     pros::Task xyt_update(update_xyt_labels, nullptr, (uint32_t)TASK_PRIORITY_MAX, (uint16_t)TASK_STACK_DEPTH_DEFAULT); // prev task priority default
