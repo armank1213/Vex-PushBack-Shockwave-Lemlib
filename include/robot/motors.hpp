@@ -1,14 +1,10 @@
 #pragma once 
 
 // Basic motor control functions
-void intake(int intakePower);
-void outtake(int outtakePower);
-void middleTake(int middlePower);
-void sort(int sortPower);
-void fullMotorControl();
-void halfMotorControl();
+void intake(int intakeRPM);
+void outtake(int oputtakeRPM);
+void middletake(int middleRPM);
 
 // Control functions
-void intakeControl();
+void control();
 void outtakeControl();
-void manual_colorSort();

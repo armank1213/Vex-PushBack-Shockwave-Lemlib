@@ -109,8 +109,8 @@ void initializeUI() {
 
     xyDisplay();
     tDisplay();
-    left_Button();
-    right_Button();
+    left_switch();
+    right_switch();
     skills_switch();
 
     // Create a pros task that updates the vertical and horizontal rotation sensor measurements on the brain screen

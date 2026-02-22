@@ -31,20 +31,20 @@ void initialize() {
    while (imu.is_calibrating()) {
        pros::delay(10);
    }
-   pros::lcd::initialize(); // initialize brain screen
+   //pros::lcd::initialize(); // initialize brain screen
 
 
-   pros::Task([&] {
+   /*pros::Task([&] {
        while (true) {
            pros::lcd::print(0, "X: %f", chassis.getPose().x);
            pros::lcd::print(1, "Y: %f", chassis.getPose().y);
            pros::lcd::print(2, "Theta: %f", chassis.getPose().theta);
            pros::delay(10);
        }
-   });
+   });*/
 
    // Initialize UI
-   //initializeUI();
+   initializeUI();
 }
 
 
@@ -128,7 +128,7 @@ void opcontrol() {
 
        // Intake and outtake control functions
        //middleControl();
-       intakeControl();
+       control();
 
 
 

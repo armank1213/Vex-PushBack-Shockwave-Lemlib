@@ -18,7 +18,7 @@ pros::Distance distanceSensor(2); // Distance Sensor on port 14
 pros::Optical limiter_light(6); // Synesthesia sensor on port 6
 pros::Imu imu(3);
 pros::Rotation vertical_rotation(-11);
-pros::Rotation horizontal_rotation(-20);
+pros::Rotation horizontal_rotation(20);
 pros::Distance LeftDistanceSensor(21);
 pros::Distance RightDistanceSensor(21); 
 pros::Distance BackDistanceSensor(21);
