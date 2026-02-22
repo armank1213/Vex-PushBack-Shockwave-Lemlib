@@ -23,7 +23,7 @@
 #include <iostream>
 
 #include "pros/device.hpp"
-#include "pros/distance.h"
+#include "pros/distance.h" // IWYU pragma: keep
 
 namespace pros {
 inline namespace v5 {

@@ -1,6 +1,6 @@
 #include "robot/color_sort.hpp"
 #include "robot/motors.hpp"
-#include "robot/hardware.hpp"
+#include "robot/hardware.hpp" // IWYU pragma: keep
 #include <cstdlib>
 
 void red_colorSort(int distance, double hue) {

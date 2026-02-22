@@ -64,20 +64,16 @@ void competition_initialize() {}
 * Runs during autonomous
 */
 void autonomous() {
-   leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
-   rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+   //leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+   //rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
 
-
-   left_auton();
-
-
-   /*if (autonSelection == 0) {
+   if (autonSelection == 0) {
        left_auton();
    } else if (autonSelection == 1) {
        right_auton();
    } else if (autonSelection == 2) {
        skills_auton();
-   }*/
+   }
 }
 
 
