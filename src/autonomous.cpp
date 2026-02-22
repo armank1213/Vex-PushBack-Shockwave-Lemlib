@@ -1,4 +1,5 @@
 #include "robot/autonomous.hpp"
+#include "lemlib/chassis/chassis.hpp"
 #include "robot/chassis_config.hpp" // IWYU pragma: keep
 #include "robot/hardware.hpp" // IWYU pragma: keep
 #include "robot/motors.hpp" // IWYU pragma: keep
@@ -18,36 +19,62 @@ void lateral_tuning() {
 
 void left_auton() {
     chassis.setPose(0,0,0);
-
+    wing.set_value(0);
     limiter.set_value(1);
     intakeMotor.move(-200);
     middleMotor.move(-200);
     outtake(200);
-    //chassis.moveToPose(4, 15, 9, 1500, {.forwards = true, .lead = 0.5, .maxSpeed = 80}, true);
-    // pros::delay(250);
+    //Picking up 3 blocks
     chassis.moveToPose(0, 16, 10, 1000, {.forwards = true, .lead = 0, .minSpeed=30}, false);
-    pros::delay(250);
-    chassis.moveToPose(0, 18, 0, 1000, {.forwards = true, .lead = 0, .minSpeed=30}, false);
-    pros::delay(250);
+    pros::delay(150);
+    chassis.moveToPose(0, 18, 0, 1500, {.forwards = true, .lead = 0, .minSpeed=30}, false);
+    pros::delay(150);
     chassis.moveToPose(0,24,10,1000,{.forwards=true, .lead=0, .minSpeed=40},false);
-    pros::delay(250);
-    chassis.turnToHeading(-110,1000);
-    chassis.moveToPoint(18,36.5,1000,{.forwards=false,.maxSpeed=70},false);
-    limiter.set_value(0);
+    pros::delay(150);
+    chassis.turnToHeading(-104,1000);
+    //middle goal scoring
+    chassis.moveToPoint(19,37,1500,{.forwards=false,.maxSpeed=70},false);
+    limiter.set_value(1);
     outtake(-150);
     pros::delay(200);
     middletake(600);
     pros::delay(200);
     middletake(600);
-    pros::delay(2000);
+    pros::delay(1500);
     intake(0);
-    chassis.moveToPoint(3,30,1000,{.forwards=true});
-    chassis.moveToPose(-35,7,-150,1000,{.forwards=true,.lead=0},false);
-    matchLoad.set_value(true);
-    middletake(0);
     outtake(0);
-    chassis.moveToPoint(-35,10,2000,{.forwards=true, .maxSpeed=80},false);
-    chassis.moveToPoint(-35,4,2000,{.forwards=true, .maxSpeed=80},false);
+    middletake(0);
+    //matchloading
+    chassis.moveToPose(-38,12,-158,2500,{.forwards=true,.lead=0},false);
+    matchLoad.set_value(true);
+    pros::delay(100);
+    chassis.moveToPoint(-38,3,500,{.forwards=true},false);
+    intakeMotor.move(-200);
+    middleMotor.move(-200);
+    outtake(200);
+    pros::delay(1000);
+    //long goal scoring
+    chassis.moveToPoint(-28,34,1500,{.forwards=false},false);
+    matchLoad.set_value(false);
+    limiter.set_value(0);
+    pros::delay(1500);
+    intake(0);
+    outtake(0);
+    middletake(0);
+    //winging after long goal
+    wing.set_value(1);
+    chassis.swingToHeading(-330, DriveSide::LEFT, 1000);
+    wing.set_value(0);
+    chassis.turnToHeading(-300,500);
+
+
+    
+    
+    /*middletake(0);
+    outtake(0);
+    chassis.moveToPose(-39,12,-158,2000,{.forwards=true, .maxSpeed=80},false);
+    matchLoad.set_value(true);
+    chassis.moveToPoint(-36,3,2000,{.forwards=true, .maxSpeed=80},false);
 
     limiter.set_value(1);
     intake(200);
@@ -58,14 +85,14 @@ void left_auton() {
     pros::delay(250);
     middletake(600);
     pros::delay(2000);
-    chassis.moveToPoint(-26,32,2000, {.forwards=false},false);
+    chassis.moveToPoint(-26,31,2000, {.forwards=false},false);
     outtake(200);
     //chassis.moveToPose(18,24,-115,2000,{.forwards=false},false); 
     //chassis.moveToPoint(0,24,-115,2000,{.forwards=false},false);
     //chassis.moveToPose(-1,6,-114,2500,{.forwards=false, .lead=0, .maxSpeed=127},false);
     //chassis.turnToHeading(-96, 2000);
     //chassis.moveToPose(7,15, -105, 2500, {.forwxards = false, .lead = 0, .minSpeed=40}, false);
-    //middleMotor.move(100);
+    //middleMotor.move(100);*/
 
     //chassis.moveToPose(-48, -15, -150, 3000, {.forwards = true, .lead = .6, .minSpeed=67}, false);
     /*chassis.moveToPoint(-44, -6.5, 3000, {.forwards=true, .minSpeed=55}); // originally -7 for y
