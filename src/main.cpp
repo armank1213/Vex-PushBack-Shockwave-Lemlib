@@ -10,7 +10,13 @@
 #include "robot/color_sort.hpp" // IWYU pragma: keep
 #include "robot/pneumatics.hpp"
 
+#include <cstdio>
+#include <iostream>
+#include <fstream>
 
+//re run thing
+std::ofstream ofs;
+bool open = false;
 /**
 * Runs initialization code. This occurs as soon as the program is started.
 *
@@ -45,6 +51,12 @@ void initialize() {
 
    // Initialize UI
    initializeUI();
+
+   // re run thing
+    if (pros::usd::is_installed()) {  // FIXED: was Brain.SDcard.is_inserted()
+        ofs.open("dtData.txt", std::ofstream::out);
+        open = true;
+    }
 }
 
 
@@ -64,41 +76,22 @@ void competition_initialize() {}
 * Runs during autonomous
 */
 void autonomous() {
-   //leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
-   //rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+   leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+   rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
 
-   if (autonSelection == 0) {
+   /*if (autonSelection == 0) {
        left_auton();
    } else if (autonSelection == 1) {
        right_auton();
    } else if (autonSelection == 2) {
        skills_auton();
-   }
+   }*/
+    re_run();
 }
-
 
 void opcontrol() {
    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
-
-
-   /*// Matchload piston variables
-   bool matchloadTogle = false;
-   static bool lastAButtonState = false;
-
-
-   // Limiter piston variables
-   bool limiterPistonToggle = false;
-   static bool lastYButtonState = false;
-
-
-   // Wing piston variables
-   bool wingPistonToggle = false;
-   static bool lastXButtonState = false;
-   // Color sorting variables
-   static int sortMode = 0;
-   static bool LastB_ButtonState = false;*/
-
 
    // Anti-jam control variables
    const bool allianceColor = true; // true for red, false for blue
@@ -108,15 +101,15 @@ void opcontrol() {
    while (true) {
        // Get joystick positions
        int leftY = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
-       int rightY = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y);
+       int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
 
 
        // Chassis Drive Functions
-       //chassis.arcade(leftY, rightX, false, .6);
+       chassis.arcade(leftY, rightX, false, .6);
 
 
        // lmao deal with it naman + chey - achin (hella right - arman)
-       chassis.tank(leftY, rightY, false);
+       //chassis.tank(leftY, rightY, false);
 
 
        //chassis.curvature(leftY, rightY, false);
@@ -132,24 +125,6 @@ void opcontrol() {
        /*colorSensor.set_led_pwm(100);
        int distance = distanceSensor.get_distance();
        double hue = colorSensor.get_hue();*/
-  
-
-
-       // Color sorting functions
-       /*if (colorSortMode == 0) {
-           if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L1)) {
-               if (limiter.is_extended() == false) {
-                   red_colorSort(distance, hue);
-               }
-           }
-       }
-       else if (colorSortMode == 1) {
-           if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L1)) {
-               if (limiter.is_extended() == false) {
-                   blue_colorSort(distance, hue);
-               }
-           }
-       }*/
 
 
        // Matchload Pneumatics Toggle
@@ -159,14 +134,17 @@ void opcontrol() {
        // Wing Mech Pneumatics Toggle
        wingToggle();
 
+       // re-run
+        if (open == true) {  // FIXED: was = instead of ==
 
+            double l1 = leftMotors.get_voltage();   // FIXED: MotorGroup not array
+            double r1 = rightMotors.get_voltage();  // FIXED: MotorGroup not array
 
+            ofs << l1 << " " << r1 << "\n";  // FIXED: only 2 values since MotorGroup
 
-       // Delay to save resources and update lvgl timer
-       lv_timer_handler();
-       pros::delay(30);
-   }
+            ofs.flush();
+        }
+        pros::delay(20);
+    }
+   ofs.close();
 }
-
-
-

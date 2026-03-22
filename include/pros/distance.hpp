@@ -23,7 +23,7 @@
 #include <iostream>
 
 #include "pros/device.hpp"
-#include "pros/distance.h" // IWYU pragma: keep
+#include "pros/distance.h"
 
 namespace pros {
 inline namespace v5 {
@@ -239,7 +239,7 @@ namespace literals {
  * }
  * \endcode
  */
-const pros::Distance operator"" _dist(const unsigned long long int d);
+const pros::Distance operator""_dist(const unsigned long long int d);
 }  // namespace literals
 }  // namespace v5
 }  // namespace pros

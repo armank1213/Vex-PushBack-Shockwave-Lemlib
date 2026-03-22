@@ -25,9 +25,11 @@ extern pros::Imu imu;
 extern pros::Optical colorSensor;
 extern pros::Distance distanceSensor;
 extern pros::Optical limiter_light;
-extern pros::Distance LeftDistanceSensor;
-extern pros::Distance RightDistanceSensor;
-extern pros::Distance BackDistanceSensor;
+
+extern pros::Distance ldist_sens;
+extern pros::Distance rdist_sens;
+extern pros::Distance fdist_sens;
+extern pros::Distance bdist_sens;
 
 
 // Pneumatics

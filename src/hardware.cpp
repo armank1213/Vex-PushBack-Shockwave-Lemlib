@@ -19,9 +19,11 @@ pros::Optical limiter_light(6); // Synesthesia sensor on port 6
 pros::Imu imu(3);
 pros::Rotation vertical_rotation(-11);
 pros::Rotation horizontal_rotation(20);
-pros::Distance LeftDistanceSensor(21);
-pros::Distance RightDistanceSensor(21); 
-pros::Distance BackDistanceSensor(21);
+
+pros::Distance ldist_sens(9);
+pros::Distance rdist_sens(4); 
+pros::Distance fdist_sens(5);
+pros::Distance bdist_sens(6);
 
 // Pneumatics
 pros::adi::Pneumatics matchLoad('E', false);

@@ -15,3 +15,5 @@ void correct_t(int target_t, int final_x, int final_y, int timeout, bool reverse
 
 double angle_error(double angle_a, double angle_b);
 std::pair<double,double> reset_distance();
+
+void dReset(int ftarget, int btarget, int ltarget, int rtarget);

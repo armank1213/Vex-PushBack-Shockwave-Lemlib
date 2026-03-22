@@ -54,12 +54,10 @@ class Motor : public AbstractMotor, public Device {
 	 * \param gearset = pros::v5::MotorGears::green
 	 * 		  Optional parameter for the gearset for the motor.
 	 * 		  Does not explicitly set the gearset if not specified or if the gearset is invalid
-	 * \param reverse
 	 *
 	 * \param encoder_units = pros::v5::MotorUnits::degrees
 	 * 		  Optional parameter for the encoder units of the motor
 	 * 		  Does not explicitly set the gearset if not specified or if the gearset is invalid
-	 * 
 	 *
 	 * \b Example
 	 * \code
@@ -2458,7 +2456,7 @@ namespace literals {
  * }
  * \endcode
  */
-const pros::Motor operator"" _mtr(const unsigned long long int m);
+const pros::Motor operator""_mtr(const unsigned long long int m);
 /**
  * Constructs a reversed Motor from a literal ending in _rmtr
  *
@@ -2472,7 +2470,7 @@ const pros::Motor operator"" _mtr(const unsigned long long int m);
  * }
  * \endcode
  */
-const pros::Motor operator"" _rmtr(const unsigned long long int m);
+const pros::Motor operator""_rmtr(const unsigned long long int m);
 }  // namespace literals
 }  // namespace v5
 }  // namespace pros

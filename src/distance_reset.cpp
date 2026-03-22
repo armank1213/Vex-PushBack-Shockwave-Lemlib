@@ -36,7 +36,7 @@ double prev_rotation = vertical_rotation.get_position();
 const double FIELD_WIDTH = 3657.6; // mm
 const double FIELD_HEIGHT = 3657.6; // mm
 
-const double ANGLE_TOLERANCE = 5.0; // degrees
+const double ANGLE_TOLERANCE = 0.5; // degrees
 
 struct SensorOffsets {
     double left;
@@ -71,9 +71,9 @@ std::pair<double, double> reset_distance() {
         y = y + delta_s + sin(theta);
 
         //distance
-        double DL = LeftDistanceSensor.get_distance();
-        double DR = RightDistanceSensor.get_distance();
-        double DB = BackDistanceSensor.get_distance();
+        double DL = ldist_sens.get_distance();
+        double DR = rdist_sens.get_distance();
+        double DB = bdist_sens.get_distance();
 
         // left wall
 

@@ -5,8 +5,54 @@
 #include "robot/motors.hpp" // IWYU pragma: keep
 #include "robot/auton_helpers.hpp" // IWYU pragma: keep
 #include "lemlib/asset.hpp" // IWYU pragma: keep
+#include <fstream>
+#include <sstream>
+
 
 // Get paths used for pure pursuit
+
+void re_run() {
+    
+    if (!pros::usd::is_installed()) {
+        return;
+    }
+    
+    std::ifstream ifs("dtData.txt");
+
+    if (!ifs.is_open()) {
+        return;
+    }    
+    
+    std::string line;
+    
+    while (std::getline(ifs, line)) {
+        if (line.empty()) continue;
+        
+        std::stringstream ss(line); // FIXED: was ss(str: line)
+        std::string val;
+        double left1V, right1V;
+
+        try {
+            std::getline(ss, val, ' '); left1V  = std::stod(val);
+            std::getline(ss, val, ' '); right1V = std::stod(val);
+        } catch (...) {
+            continue;
+        }
+
+        // FIXED: MotorGroup takes voltage directly, no subscript
+        leftMotors.move_voltage(left1V);
+        rightMotors.move_voltage(right1V);
+
+        pros::delay(20);
+    }
+
+    leftMotors.move_voltage(0);
+    rightMotors.move_voltage(0);
+
+    ifs.close();
+}
+
+
 
 void angular_tuning() {
     chassis.setPose(0,0,0);
@@ -20,7 +66,6 @@ void lateral_tuning() {
 
 
 void left_auton() {
-
     chassis.setPose(0,0,0);
     wing.set_value(0);
     limiter.set_value(1);
@@ -50,6 +95,7 @@ void left_auton() {
     intake(0);
     outtake(0);
     middletake(0);
+    // FIRST TRILAT
     //matchloading
     chassis.moveToPoint(-34,11,2500,{.forwards=true,.maxSpeed=80},false);
     chassis.turnToHeading(-156,500);
@@ -67,6 +113,7 @@ void left_auton() {
     matchLoad.set_value(false);
     limiter.set_value(0);
     pros::delay(2500);
+
 }
 
 void right_auton() {
