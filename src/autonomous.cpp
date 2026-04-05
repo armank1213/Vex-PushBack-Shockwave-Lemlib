@@ -5,7 +5,6 @@
 #include "robot/motors.hpp" // IWYU pragma: keep
 #include "robot/auton_helpers.hpp" // IWYU pragma: keep
 #include "robot/distance_reset.hpp" // IWYU pragma: keep
-#include "robot/re_run_helpers.hpp" // IWYU pragma: keep
 #include "lemlib/asset.hpp" // IWYU pragma: keep
 #include <fstream>
 #include <sstream>
@@ -19,42 +18,26 @@ const char* DATA_PATH = "/usd/dtData.txt";
 // chassis.moveToPose(x, y, heading, timeout, {.forwards=true})
 //   - Drives to (x,y) AND ends facing the given heading
 //   - ALWAYS turns to face the target point before driving
-//   - Use for: moving to a position where final heading matters
 //   - .forwards = false → drives backward to the point, ends facing heading
 //
 // chassis.moveToPoint(x, y, timeout, {.forwards=true})
 //   - Drives to (x,y), doesn't care about final heading
 //   - .forwards = false → drives STRAIGHT BACKWARD, no turning first
-//   - Use for: backing up, simple point-to-point movement
 //
 // RULE OF THUMB:
-//   Going forward to a new position      → moveToPose or moveToPoint forwards=true
-//   Backing up (reversing)               → moveToPoint forwards=false
-//   Moving to a point with a final angle → moveToPose
+//   Going forward                → moveToPoint forwards=true
+//   Backing up                   → moveToPoint forwards=false
+//   Moving with a final heading  → moveToPose
 //
-// WAYPOINT_SKIP: frames to skip between moveToPose calls in odom_ekf_run.
-//   20 is a good starting point.
-// MOVE_TIMEOUT_MS: ms LemLib waits per waypoint. Start at 500.
+// WAYPOINT_SKIP: frames to skip between moveToPoint calls.
+// MOVE_TIMEOUT_MS: ms LemLib waits per waypoint.
 // ================================================================
 
 // ===================== SPEED TUNING =====================
 // MIN_SPEED: prevents LemLib from decelerating too much between waypoints.
-//   - Higher = faster throughout, less precise
-//   - Lower  = more precise, but slower near each waypoint
-//   - Start at 60. Try 60-110 to match driver speed.
-//
-// MAX_SPEED: caps the top speed LemLib will use.
-//   - 127 = uncapped (full speed)
-//   - Lower if the robot overshoots waypoints badly
-//   - Start at 100. Lower to 80 if overshooting.
-//
-// TURN_THRESHOLD_DEG: minimum heading change to trigger a turnToHeading.
-//   - Prevents tiny corrections from firing a turn on every waypoint.
-//   - Start at 15 degrees. Lower if turns are being skipped, raise if
-//     there are too many micro-turns.
-//
+// MAX_SPEED: caps top speed. Lower if overshooting.
+// TURN_THRESHOLD_DEG: only fire turnToHeading if heading diff > this.
 // TURN_TIMEOUT_MS: how long turnToHeading has to complete.
-//   - Should be enough for a fast turn. Start at 400ms.
 // ========================================================
 
 void odom_ekf_run() {
@@ -91,29 +74,42 @@ void odom_ekf_run() {
     const int    WAYPOINT_SKIP      = 20;
     const int    MOVE_TIMEOUT_MS    = 500;
     const int    MIN_SPEED          = 60;
-    const int    MAX_SPEED          = 100;
+    const int    MAX_SPEED          = 110;
     const double TURN_THRESHOLD_DEG = 15.0;
     const int    TURN_TIMEOUT_MS    = 400;
 
     std::string line;
     int step = 0;
 
+    bool prev_l1    = false;
+    bool prev_right = false;
+    bool prev_x     = false;
+
+    bool wingState      = false;
+    bool matchloadState = false;
+    bool limiterState   = true;
+
     while (std::getline(fs, line)) {
         if (line.empty()) continue;
-
-        if (step % WAYPOINT_SKIP != 0) {
-            step++;
-            continue;
-        }
 
         std::stringstream ss(line);
         std::string val;
         double filex, filey, filet;
+        int r1 = 0, r2 = 0, y_btn = 0, b_btn = 0, l2 = 0;
+        int l1 = 0, right_btn = 0, x_btn = 0;
 
         try {
-            std::getline(ss, val, ' '); filex = std::stod(val);
-            std::getline(ss, val, ' '); filey = std::stod(val);
-            std::getline(ss, val, ' '); filet = std::stod(val);
+            std::getline(ss, val, ' '); filex     = std::stod(val);
+            std::getline(ss, val, ' '); filey     = std::stod(val);
+            std::getline(ss, val, ' '); filet     = std::stod(val);
+            std::getline(ss, val, ' '); r1        = std::stoi(val);
+            std::getline(ss, val, ' '); r2        = std::stoi(val);
+            std::getline(ss, val, ' '); y_btn     = std::stoi(val);
+            std::getline(ss, val, ' '); b_btn     = std::stoi(val);
+            std::getline(ss, val, ' '); l2        = std::stoi(val);
+            std::getline(ss, val, ' '); l1        = std::stoi(val);
+            std::getline(ss, val, ' '); right_btn = std::stoi(val);
+            std::getline(ss, val, ' '); x_btn     = std::stoi(val);
         } catch (...) {
             step++;
             continue;
@@ -122,6 +118,49 @@ void odom_ekf_run() {
         if (step == 0) {
             controller.print(0, 0, "OK %.1f %.1f %.1f", filex, filey, filet);
             pros::delay(300);
+        }
+
+        // ---- Replay recorded mechanism states ----
+
+        if (r1) {
+            outtake(200); intake(200); middletake(600); limiter.set_value(1);
+        } else if (r2) {
+            intake(200); middletake(600); outtake(200); limiter.set_value(0);
+        } else if (y_btn) {
+            limiter.set_value(0); outtake(-200); intake(200); middletake(600);
+        } else if (b_btn) {
+            limiter.set_value(0); outtake(-55); intake(200); middletake(600);
+        } else if (l2) {
+            outtake(-200); intake(-200); middletake(-600);
+        } else {
+            intake(0); outtake(0); middletake(0);
+        }
+
+        if (l1 && !prev_l1) {
+            wingState = !wingState;
+            wing.set_value(wingState);
+        }
+        prev_l1 = l1;
+
+        if (right_btn && !prev_right) {
+            matchloadState = !matchloadState;
+            matchLoad.set_value(matchloadState);
+        }
+        prev_right = right_btn;
+
+        if (x_btn && !prev_x) {
+            limiterState = !limiterState;
+            limiter.set_value(limiterState);
+            limiter_light.set_led_pwm(limiterState ? 100 : 0);
+        }
+        prev_x = x_btn;
+
+        // ------------------------------------------
+
+        // Skip chassis movement on non-waypoint frames — no delay, instant
+        if (step % WAYPOINT_SKIP != 0) {
+            step++;
+            continue;
         }
 
         // Auto-detect backward movement using dot product
@@ -153,6 +192,7 @@ void odom_ekf_run() {
             chassis.turnToHeading(filet, TURN_TIMEOUT_MS, {}, false);
         }
 
+        pros::delay(20);
         step++;
     }
 

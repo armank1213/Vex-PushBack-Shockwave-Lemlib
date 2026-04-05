@@ -1,4 +1,5 @@
 #include "main.h" // IWYU pragma: keep
+#include "pros/motors.h"
 #include "robot/hardware.hpp"
 #include "robot/chassis_config.hpp"
 #include "robot/ui.hpp" // IWYU pragma: keep
@@ -36,8 +37,8 @@ void disabled() {}
 void competition_initialize() {}
 
 void autonomous() {
-    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
-    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
     odom_ekf_run();
 }

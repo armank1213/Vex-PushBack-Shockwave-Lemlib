@@ -22,19 +22,30 @@ void voltage_recording(std::ofstream& ofs, bool open) {
     ofs.flush();
 }
 
-
 void pose_recording(std::ofstream& ofs, bool open) {
     if (!open) return;
 
-    // FIXED: was int which truncated decimal precision
     double x = chassis.getPose().x;
     double y = chassis.getPose().y;
     double t = chassis.getPose().theta;
 
-    ofs << x << " " << y << " " << t << "\n";
+    // Record all button states (0 or 1) after the pose
+    int r1    = controller.get_digital(pros::E_CONTROLLER_DIGITAL_R1)    ? 1 : 0;
+    int r2    = controller.get_digital(pros::E_CONTROLLER_DIGITAL_R2)    ? 1 : 0;
+    int y_btn = controller.get_digital(pros::E_CONTROLLER_DIGITAL_Y)     ? 1 : 0;
+    int b_btn = controller.get_digital(pros::E_CONTROLLER_DIGITAL_B)     ? 1 : 0;
+    int l2    = controller.get_digital(pros::E_CONTROLLER_DIGITAL_L2)    ? 1 : 0;
+    int l1    = controller.get_digital(pros::E_CONTROLLER_DIGITAL_L1)    ? 1 : 0;
+    int right = controller.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT) ? 1 : 0;
+    int x_btn = controller.get_digital(pros::E_CONTROLLER_DIGITAL_X)     ? 1 : 0;
+
+    // Format: x y theta r1 r2 y b l2 l1 right x
+    ofs << x     << " " << y     << " " << t     << " "
+        << r1    << " " << r2    << " " << y_btn << " "
+        << b_btn << " " << l2    << " " << l1    << " "
+        << right << " " << x_btn << "\n";
     ofs.flush();
 }
-
 
 void dist_sens_angle_correction(double t, double quadrant, bool fwall, bool bwall, bool lwall, bool rwall) {
 
