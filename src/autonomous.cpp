@@ -37,6 +37,26 @@ const char* DATA_PATH = "/usd/dtData.txt";
 // MOVE_TIMEOUT_MS: ms LemLib waits per waypoint. Start at 500.
 // ================================================================
 
+// ===================== SPEED TUNING =====================
+// MIN_SPEED: prevents LemLib from decelerating too much between waypoints.
+//   - Higher = faster throughout, less precise
+//   - Lower  = more precise, but slower near each waypoint
+//   - Start at 60. Try 60-110 to match driver speed.
+//
+// MAX_SPEED: caps the top speed LemLib will use.
+//   - 127 = uncapped (full speed)
+//   - Lower if the robot overshoots waypoints badly
+//   - Start at 100. Lower to 80 if overshooting.
+//
+// TURN_THRESHOLD_DEG: minimum heading change to trigger a turnToHeading.
+//   - Prevents tiny corrections from firing a turn on every waypoint.
+//   - Start at 15 degrees. Lower if turns are being skipped, raise if
+//     there are too many micro-turns.
+//
+// TURN_TIMEOUT_MS: how long turnToHeading has to complete.
+//   - Should be enough for a fast turn. Start at 400ms.
+// ========================================================
+
 void odom_ekf_run() {
     if (!pros::usd::is_installed()) {
         controller.print(0, 0, "FAIL: no SD card  ");
@@ -68,8 +88,12 @@ void odom_ekf_run() {
 
     chassis.setPose(0, 0, 0);
 
-    const int WAYPOINT_SKIP   = 20;
-    const int MOVE_TIMEOUT_MS = 500;
+    const int    WAYPOINT_SKIP      = 20;
+    const int    MOVE_TIMEOUT_MS    = 500;
+    const int    MIN_SPEED          = 60;
+    const int    MAX_SPEED          = 100;
+    const double TURN_THRESHOLD_DEG = 15.0;
+    const int    TURN_TIMEOUT_MS    = 400;
 
     std::string line;
     int step = 0;
@@ -114,83 +138,26 @@ void odom_ekf_run() {
         double fwdY = std::cos(thetaRad);
         double dot  = dx * fwdX + dy * fwdY;
 
-        // dot < 0 means target is behind the robot → go backwards
-        // dist > 1.0 guard avoids noise when already near the waypoint
         bool goingBackwards = (dist > 1.0) && (dot < 0);
 
-        chassis.moveToPose(filex, filey, filet, MOVE_TIMEOUT_MS,
-                           {.forwards = !goingBackwards}, false);
+        chassis.moveToPoint(filex, filey, MOVE_TIMEOUT_MS,
+                            {.forwards = !goingBackwards,
+                             .maxSpeed = MAX_SPEED,
+                             .minSpeed = MIN_SPEED}, false);
+
+        double headingErr = filet - actTheta;
+        while (headingErr > 180)  headingErr -= 360;
+        while (headingErr < -180) headingErr += 360;
+
+        if (std::abs(headingErr) > TURN_THRESHOLD_DEG) {
+            chassis.turnToHeading(filet, TURN_TIMEOUT_MS, {}, false);
+        }
 
         step++;
     }
 
     controller.print(0, 0, "Done: %d steps    ", step);
     fs.close();
-}
-
-void re_run() {
-    if (!pros::usd::is_installed()) return;
-
-    std::ifstream ifs(DATA_PATH);
-    if (!ifs.is_open()) return;
-
-    chassis.setPose(0, 0, 0);
-
-    std::string line;
-
-    const double kP_lateral = 0.3;
-    const double kP_theta   = 8.0;
-
-    while (std::getline(ifs, line)) {
-        if (line.empty()) continue;
-
-        std::stringstream ss(line);
-        std::string val;
-        double left1V, right1V, expX, expY, expTheta;
-
-        try {
-            std::getline(ss, val, ' '); left1V   = std::stod(val);
-            std::getline(ss, val, ' '); right1V  = std::stod(val);
-            std::getline(ss, val, ' '); expX     = std::stod(val);
-            std::getline(ss, val, ' '); expY     = std::stod(val);
-            std::getline(ss, val, ' '); expTheta = std::stod(val);
-        } catch (...) {
-            continue;
-        }
-
-        double actX     = chassis.getPose().x;
-        double actY     = chassis.getPose().y;
-        double actTheta = chassis.getPose().theta;
-
-        double errorX     = expX     - actX;
-        double errorY     = expY     - actY;
-        double errorTheta = expTheta - actTheta;
-
-        while (errorTheta > 180)  errorTheta -= 360;
-        while (errorTheta < -180) errorTheta += 360;
-
-        double thetaRad = actTheta * M_PI / 180.0;
-        double lateralError = errorX * sin(thetaRad) + errorY * cos(thetaRad);
-
-        double lateralCorrection = kP_lateral * lateralError * 120;
-        double thetaCorrection   = kP_theta   * errorTheta;
-
-        const double maxLateralCorrection = 2000;
-        const double maxThetaCorrection   = 3000;
-        lateralCorrection = std::clamp(lateralCorrection, -maxLateralCorrection, maxLateralCorrection);
-        thetaCorrection   = std::clamp(thetaCorrection,   -maxThetaCorrection,   maxThetaCorrection);
-
-        double battery = pros::battery::get_voltage() / 12000.0;
-
-        leftMotors.move_voltage( (left1V  * battery) + lateralCorrection - thetaCorrection);
-        rightMotors.move_voltage((right1V * battery) + lateralCorrection + thetaCorrection);
-
-        pros::delay(20);
-    }
-
-    leftMotors.move_voltage(0);
-    rightMotors.move_voltage(0);
-    ifs.close();
 }
 
 void angular_tuning() {
