@@ -1,4 +1,4 @@
-#include "main.h"
+#include "main.h" // IWYU pragma: keep
 #include "robot/hardware.hpp"
 #include "robot/chassis_config.hpp"
 #include "robot/ui.hpp" // IWYU pragma: keep
@@ -9,142 +9,95 @@
 #include "robot/motors.hpp"
 #include "robot/color_sort.hpp" // IWYU pragma: keep
 #include "robot/pneumatics.hpp"
+#include "robot/re_run_helpers.hpp"
 
 #include <cstdio>
 #include <iostream>
 #include <fstream>
 
-//re run thing
+// re run thing
 std::ofstream ofs;
 bool open = false;
-/**
-* Runs initialization code. This occurs as soon as the program is started.
-*
-* All other competition modes are blocked by initialize; it is recommended
-* to keep execution time for this mode under a few seconds.
-*/
+
 void initialize() {
-   // Calibrate chassis (drivetrain, odometry, PID, sensors, controller steering)
-   chassis.calibrate();
+    chassis.calibrate();
 
+    vertical_rotation.reset();
+    horizontal_rotation.reset();
 
-   // Reset rotation sensors
-   vertical_rotation.reset();
-   horizontal_rotation.reset();
-
-
-   // Wait for IMU calibration
-   while (imu.is_calibrating()) {
-       pros::delay(10);
-   }
-   //pros::lcd::initialize(); // initialize brain screen
-
-
-   /*pros::Task([&] {
-       while (true) {
-           pros::lcd::print(0, "X: %f", chassis.getPose().x);
-           pros::lcd::print(1, "Y: %f", chassis.getPose().y);
-           pros::lcd::print(2, "Theta: %f", chassis.getPose().theta);
-           pros::delay(10);
-       }
-   });*/
-
-   // Initialize UI
-   initializeUI();
-
-   // re run thing
-    if (pros::usd::is_installed()) {  // FIXED: was Brain.SDcard.is_inserted()
-        ofs.open("dtData.txt", std::ofstream::out);
-        open = true;
+    while (imu.is_calibrating()) {
+        pros::delay(10);
     }
+
+    initializeUI();
 }
 
-
-/**
-* Runs while the robot is disabled
-*/
 void disabled() {}
 
-
-/**
-* Runs after initialize if the robot is connected to field control
-*/
 void competition_initialize() {}
 
-
-/**
-* Runs during autonomous
-*/
 void autonomous() {
-   leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
-   rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
 
-   /*if (autonSelection == 0) {
-       left_auton();
-   } else if (autonSelection == 1) {
-       right_auton();
-   } else if (autonSelection == 2) {
-       skills_auton();
-   }*/
-    re_run();
+    /*if (autonSelection == 0) {
+        left_auton();
+    } else if (autonSelection == 1) {
+        right_auton();
+    } else if (autonSelection == 2) {
+        skills_auton();
+    }*/
+
+    //voltage_re_run();
+    odom_ekf_run();
 }
 
 void opcontrol() {
-   leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
-   rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+    chassis.setPose(0,0,0);
 
-   // Anti-jam control variables
-   const bool allianceColor = true; // true for red, false for blue
-   bool isOurBlock = false;
+    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
+    const bool allianceColor = true;
+    bool isOurBlock = false;
 
-   while (true) {
-       // Get joystick positions
-       int leftY = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
-       int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
+    if (pros::usd::is_installed()) {
+        // reset pose so recording and re-run share the same 0,0,0 origin
+        // always rewrite the file from scratch on new recording
+        ofs.open("/usd/dtData.txt", std::ofstream::out | std::ofstream::trunc);
+        open = true;
+    } else {
+        // stop recording
+        ofs.close();
+        open = false;
+    }
 
+    while (true) {
+        // Get joystick positions
+        int leftY  = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
+        int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
 
-       // Chassis Drive Functions
-       chassis.arcade(leftY, rightX, false, .6);
+        // Chassis Drive Functions
+        chassis.arcade(leftY, rightX, false, .6);
 
+        // Intake and outtake control functions
+        control();
 
-       // lmao deal with it naman + chey - achin (hella right - arman)
-       //chassis.tank(leftY, rightY, false);
+        // Matchload Pneumatics Toggle
+        matchloadToggle();
+        // Wing Mech Pneumatics Toggle
+        wingToggle();
 
-
-       //chassis.curvature(leftY, rightY, false);
-
-
-       // Intake and outtake control functions
-       //middleControl();
-       control();
-
-
-
-       // Set light to 100% and get distance and color readings
-       /*colorSensor.set_led_pwm(100);
-       int distance = distanceSensor.get_distance();
-       double hue = colorSensor.get_hue();*/
-
-
-       // Matchload Pneumatics Toggle
-       matchloadToggle();
-       // Limiter Pneumatics Toggle
-       //limiterToggle();
-       // Wing Mech Pneumatics Toggle
-       wingToggle();
-
-       // re-run
-        if (open == true) {  // FIXED: was = instead of ==
-
-            double l1 = leftMotors.get_voltage();   // FIXED: MotorGroup not array
-            double r1 = rightMotors.get_voltage();  // FIXED: MotorGroup not array
-
-            ofs << l1 << " " << r1 << "\n";  // FIXED: only 2 values since MotorGroup
-
-            ofs.flush();
+        if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_X)) {
+            open = true;
         }
+
+        // recording — only writes when open == true
+        //voltage_recording(ofs, open);
+        pose_recording(ofs, open);
+
         pros::delay(20);
     }
-   ofs.close();
+
+    ofs.close();
 }
