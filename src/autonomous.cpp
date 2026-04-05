@@ -13,16 +13,29 @@
 #include <cmath>
 
 const double PI = 3.14159265358979323846;
-
 const char* DATA_PATH = "/usd/dtData.txt";
 
-// ===================== TUNING GUIDE =====================
-// kP_theta: proportional turning gain. Start at 90.
-// kD_theta: derivative damping. Start at 600. Only active when turning.
-// kP_lateral: forward/backward gain. Start at 50.
-// THETA_DEADBAND: ignore heading errors smaller than this (degrees). Keep at 2.0.
-// TURN_THRESHOLD: turn in place if error exceeds this (degrees). Keep at 10.0.
-// ========================================================
+// ===================== MOTION FUNCTION GUIDE =====================
+// chassis.moveToPose(x, y, heading, timeout, {.forwards=true})
+//   - Drives to (x,y) AND ends facing the given heading
+//   - ALWAYS turns to face the target point before driving
+//   - Use for: moving to a position where final heading matters
+//   - .forwards = false → drives backward to the point, ends facing heading
+//
+// chassis.moveToPoint(x, y, timeout, {.forwards=true})
+//   - Drives to (x,y), doesn't care about final heading
+//   - .forwards = false → drives STRAIGHT BACKWARD, no turning first
+//   - Use for: backing up, simple point-to-point movement
+//
+// RULE OF THUMB:
+//   Going forward to a new position      → moveToPose or moveToPoint forwards=true
+//   Backing up (reversing)               → moveToPoint forwards=false
+//   Moving to a point with a final angle → moveToPose
+//
+// WAYPOINT_SKIP: frames to skip between moveToPose calls in odom_ekf_run.
+//   20 is a good starting point.
+// MOVE_TIMEOUT_MS: ms LemLib waits per waypoint. Start at 500.
+// ================================================================
 
 void odom_ekf_run() {
     if (!pros::usd::is_installed()) {
@@ -55,19 +68,19 @@ void odom_ekf_run() {
 
     chassis.setPose(0, 0, 0);
 
-    const double kP_lateral     = 90.0;
-    const double kP_theta       = 90.0;
-    const double kD_theta       = 600.0;
-    const double maxVoltage     = 10000;
-    const double THETA_DEADBAND = 2.0;
-    const double TURN_THRESHOLD = 10.0;
+    const int WAYPOINT_SKIP   = 20;
+    const int MOVE_TIMEOUT_MS = 500;
 
     std::string line;
     int step = 0;
-    double prevErrorTheta = 0.0;
 
     while (std::getline(fs, line)) {
         if (line.empty()) continue;
+
+        if (step % WAYPOINT_SKIP != 0) {
+            step++;
+            continue;
+        }
 
         std::stringstream ss(line);
         std::string val;
@@ -78,10 +91,7 @@ void odom_ekf_run() {
             std::getline(ss, val, ' '); filey = std::stod(val);
             std::getline(ss, val, ' '); filet = std::stod(val);
         } catch (...) {
-            if (step == 0) {
-                controller.print(0, 0, "BAD FMT line 0    ");
-                pros::delay(1000);
-            }
+            step++;
             continue;
         }
 
@@ -90,57 +100,30 @@ void odom_ekf_run() {
             pros::delay(300);
         }
 
+        // Auto-detect backward movement using dot product
         double actX     = chassis.getPose().x;
         double actY     = chassis.getPose().y;
         double actTheta = chassis.getPose().theta;
 
-        double errorX     = filex - actX;
-        double errorY     = filey - actY;
-        double errorTheta = filet - actTheta;
-
-        while (errorTheta > 180)  errorTheta -= 360;
-        while (errorTheta < -180) errorTheta += 360;
-
-        // Deadband: zero out small heading errors
-        if (std::abs(errorTheta) < THETA_DEADBAND) {
-            errorTheta = 0.0;
-            // IMPORTANT: reset prevErrorTheta so derivative doesn't spike
-            // on the transition into/out of the deadband
-            prevErrorTheta = 0.0;
-        }
-
-        // Derivative only meaningful when actively turning — zero it out in deadband
-        double dErrorTheta = errorTheta - prevErrorTheta;
-        prevErrorTheta = errorTheta;
+        double dx = filex - actX;
+        double dy = filey - actY;
+        double dist = std::sqrt(dx * dx + dy * dy);
 
         double thetaRad = actTheta * PI / 180.0;
-
         double fwdX = std::sin(thetaRad);
         double fwdY = std::cos(thetaRad);
-        double dot  = errorX * fwdX + errorY * fwdY;
+        double dot  = dx * fwdX + dy * fwdY;
 
-        double driveVoltage = 0.0;
-        double turnVoltage  = std::clamp(
-            kP_theta * errorTheta + kD_theta * dErrorTheta,
-            -maxVoltage, maxVoltage
-        );
+        // dot < 0 means target is behind the robot → go backwards
+        // dist > 1.0 guard avoids noise when already near the waypoint
+        bool goingBackwards = (dist > 1.0) && (dot < 0);
 
-        if (std::abs(errorTheta) <= TURN_THRESHOLD) {
-            driveVoltage = std::clamp(kP_lateral * dot, -maxVoltage, maxVoltage);
-        }
+        chassis.moveToPose(filex, filey, filet, MOVE_TIMEOUT_MS,
+                           {.forwards = !goingBackwards}, false);
 
-        double leftVoltage  = std::clamp(driveVoltage + turnVoltage, -maxVoltage, maxVoltage);
-        double rightVoltage = std::clamp(driveVoltage - turnVoltage, -maxVoltage, maxVoltage);
-
-        leftMotors.move_voltage(leftVoltage);
-        rightMotors.move_voltage(rightVoltage);
-
-        pros::delay(20);
         step++;
     }
 
-    leftMotors.move_voltage(0);
-    rightMotors.move_voltage(0);
     controller.print(0, 0, "Done: %d steps    ", step);
     fs.close();
 }
@@ -186,7 +169,7 @@ void re_run() {
         while (errorTheta > 180)  errorTheta -= 360;
         while (errorTheta < -180) errorTheta += 360;
 
-        double thetaRad = actTheta * PI / 180.0;
+        double thetaRad = actTheta * M_PI / 180.0;
         double lateralError = errorX * sin(thetaRad) + errorY * cos(thetaRad);
 
         double lateralCorrection = kP_lateral * lateralError * 120;
@@ -222,7 +205,7 @@ void lateral_tuning() {
 
 void left_auton() {
     chassis.setPose(0, 0, 0);
-    // add left auton path here
+    chassis.moveToPose(0, 20, 0, 2000);
 }
 
 void right_auton() {
