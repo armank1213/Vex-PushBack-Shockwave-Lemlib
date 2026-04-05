@@ -10,8 +10,6 @@
 void voltage_recording(std::ofstream& ofs, bool open) {
     if (!open) return;
 
-    // battery normalization during recording so playback voltages are
-    // hardware-independent and match what voltage_re_run expects
     double battery = pros::battery::get_voltage() / 12000.0;
     double l1 = leftMotors.get_voltage()  / battery;
     double r1 = rightMotors.get_voltage() / battery;
@@ -28,9 +26,10 @@ void voltage_recording(std::ofstream& ofs, bool open) {
 void pose_recording(std::ofstream& ofs, bool open) {
     if (!open) return;
 
-    int x = chassis.getPose().x;
-    int y = chassis.getPose().y;
-    int t = chassis.getPose().theta;
+    // FIXED: was int which truncated decimal precision
+    double x = chassis.getPose().x;
+    double y = chassis.getPose().y;
+    double t = chassis.getPose().theta;
 
     ofs << x << " " << y << " " << t << "\n";
     ofs.flush();
