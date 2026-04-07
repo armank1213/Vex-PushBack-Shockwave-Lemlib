@@ -72,11 +72,11 @@ void odom_ekf_run() {
     chassis.setPose(0, 0, 0);
 
     const int    WAYPOINT_SKIP      = 20;
-    const int    MOVE_TIMEOUT_MS    = 500;
-    const int    MIN_SPEED          = 60;
+    const int    MOVE_TIMEOUT_MS    = 400;
+    const int    MIN_SPEED          = 70;
     const int    MAX_SPEED          = 110;
     const double TURN_THRESHOLD_DEG = 15.0;
-    const int    TURN_TIMEOUT_MS    = 400;
+    const int    TURN_TIMEOUT_MS    = 275;
 
     std::string line;
     int step = 0;
