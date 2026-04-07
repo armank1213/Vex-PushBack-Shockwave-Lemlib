@@ -49,41 +49,34 @@ void opcontrol() {
     leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
     rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
-    // open = false by default; only start recording when X is pressed
     open = false;
-
-    if (pros::usd::is_installed()) {
-        // Open/truncate the file now, but don't start recording yet
-        ofs.open("/usd/dtData.txt", std::ofstream::out | std::ofstream::trunc);
-    }
+    // Don't open the file here — wait for X press
 
     while (true) {
-        // Get joystick positions
         int leftY  = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
         int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
 
-        // Chassis Drive
         chassis.arcade(leftY, rightX, false, .6);
-
-        // Intake and outtake control
         control();
-
-        // Pneumatics toggles
         matchloadToggle();
         wingToggle();
 
-        // Press X to START recording
+        // Press X to toggle recording ON (open/reopen the file)
         if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_X)) {
-            if (pros::usd::is_installed() && ofs.is_open()) {
-                open = true;
+            if (pros::usd::is_installed()) {
+                if (ofs.is_open()) ofs.close(); // close any previous session
+                ofs.open("/usd/dtData.txt", std::ofstream::out | std::ofstream::trunc);
+                if (ofs.is_open()) {
+                    open = true;
+                    controller.rumble("."); // optional: confirm to driver
+                }
             }
         }
 
-        // Recording — only writes when open == true
         pose_recording(ofs, open);
 
         pros::delay(20);
     }
 
-    ofs.close();
+    if (ofs.is_open()) ofs.close();
 }
