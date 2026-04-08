@@ -40,7 +40,8 @@ void autonomous() {
     leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
     rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
-    odom_ekf_run();
+    //odom_ekf_run();
+    skills();
 }
 
 void opcontrol() {

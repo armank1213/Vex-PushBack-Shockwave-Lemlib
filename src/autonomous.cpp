@@ -14,42 +14,14 @@
 const double PI = 3.14159265358979323846;
 const char* DATA_PATH = "/usd/dtData.txt";
 
-// ===================== MOTION FUNCTION GUIDE =====================
-// chassis.moveToPose(x, y, heading, timeout, {.forwards=true})
-//   - Drives to (x,y) AND ends facing the given heading
-//   - ALWAYS turns to face the target point before driving
-//   - .forwards = false → drives backward to the point, ends facing heading
-//
-// chassis.moveToPoint(x, y, timeout, {.forwards=true})
-//   - Drives to (x,y), doesn't care about final heading
-//   - .forwards = false → drives STRAIGHT BACKWARD, no turning first
-//
-// RULE OF THUMB:
-//   Going forward                → moveToPoint forwards=true
-//   Backing up                   → moveToPoint forwards=false
-//   Moving with a final heading  → moveToPose
-//
-// WAYPOINT_SKIP: frames to skip between moveToPoint calls.
-// MOVE_TIMEOUT_MS: ms LemLib waits per waypoint.
-// ================================================================
-
-// ===================== SPEED TUNING =====================
-// MIN_SPEED: prevents LemLib from decelerating too much between waypoints.
-// MAX_SPEED: caps top speed. Lower if overshooting.
-// TURN_THRESHOLD_DEG: only fire turnToHeading if heading diff > this.
-// TURN_TIMEOUT_MS: how long turnToHeading has to complete.
-// ========================================================
-
 // ─── EKF State ───────────────────────────────────────────────
 struct EKFState {
-    double x = 0, y = 0, theta = 0; // theta in RADIANS internally
-    double P[3][3] = {{10,0,0},{0,5,0},{0,0,0.3}}; // covariance
+    double x = 0, y = 0, theta = 0;
+    double P[3][3] = {{10,0,0},{0,5,0},{0,0,0.3}};
 };
 
-// Ray-cast from (rx, ry) in world direction `angle` to nearest wall of
-// a 144x144 inch field. Returns distance in inches.
 static double raycast144(double rx, double ry, double angle) {
-    double cx = std::sin(angle); // VEX heading: 0 = +Y, CW positive
+    double cx = std::sin(angle);
     double cy = std::cos(angle);
     double t  = 1e9;
     if (cx >  1e-6) t = std::min(t, (144.0 - rx) / cx);
@@ -59,36 +31,24 @@ static double raycast144(double rx, double ry, double angle) {
     return t;
 }
 
-// Single EKF measurement update for one sensor.
-// sensor_world_angle: direction sensor faces in world frame (radians)
-// sensor_offset: how far sensor face is from robot center (inches)
-// raw_mm: distance sensor reading in mm
 static void ekf_update(EKFState& s,
                        double sensor_world_angle,
                        double sensor_offset,
                        double raw_mm,
-                       double R_noise=3)
+                       double R_noise = 3)
 {
-    // Reject bad readings (object in the way or sensor maxed out)
     if (raw_mm > 1900.0 || raw_mm < 10.0) return;
-    double measured = (raw_mm / 25.4) + sensor_offset; // convert to inches, add offset
-
-    // Expected wall distance from current estimated pose
+    double measured = (raw_mm / 25.4) + sensor_offset;
     double expected = raycast144(s.x, s.y, sensor_world_angle);
-
     double innov = measured - expected;
-    // Innovation gate: skip if unreasonably large (game object in the way)
     if (std::abs(innov) > 14.0) return;
 
-    // Jacobian H via finite differences (1×3)
     const double eps = 1e-4;
     double H[3];
     H[0] = (raycast144(s.x + eps, s.y, sensor_world_angle) - expected) / eps;
     H[1] = (raycast144(s.x, s.y + eps, sensor_world_angle) - expected) / eps;
-    // theta changes the world angle of the sensor
     H[2] = (raycast144(s.x, s.y, sensor_world_angle + eps) - expected) / eps;
 
-    // S = H*P*H^T + R
     double HP[3] = {0, 0, 0};
     for (int j = 0; j < 3; j++)
         for (int k = 0; k < 3; k++)
@@ -97,19 +57,16 @@ static void ekf_update(EKFState& s,
     for (int j = 0; j < 3; j++) Sval += HP[j] * H[j];
     if (std::abs(Sval) < 1e-9) return;
 
-    // Kalman gain K = P*H^T / S (3×1)
     double K[3] = {0, 0, 0};
     for (int i = 0; i < 3; i++)
         for (int k = 0; k < 3; k++)
             K[i] += s.P[i][k] * H[k];
     for (int i = 0; i < 3; i++) K[i] /= Sval;
 
-    // State update
     s.x     += K[0] * innov;
     s.y     += K[1] * innov;
     s.theta += K[2] * innov;
 
-    // Covariance update P = (I - K*H)*P
     double newP[3][3];
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++) {
@@ -156,34 +113,47 @@ void odom_ekf_run() {
 
     chassis.setPose(0, 0, 0);
 
-    const int    WAYPOINT_SKIP      = 20;
-    const int    MOVE_TIMEOUT_MS    = 400;
-    const int    MIN_SPEED          = 70;
-    const int    MAX_SPEED          = 110;
+    // ── Tuning ────────────────────────────────────────────────────
+    const int    WAYPOINT_SKIP     = 8;
+    const int    MIN_SPEED         = 70;
+    const int    MAX_SPEED         = 110;
+    const float  EARLY_EXIT_MAX    = 6.0f;
+    const double TURN_DETECT_DEG   = 25.0;
+    const double TURN_RATIO_THRESH = 8.0;
+    const double SHORT_MOVE_IN     = 4.0;
     const double TURN_THRESHOLD_DEG = 15.0;
-    const int    TURN_TIMEOUT_MS    = 275;
+    const int    TURN_TIMEOUT_MS   = 500;
 
-    // Sensor face offsets from robot center (inches) — TUNE THESE
+    // ── Dynamic timing tuning ─────────────────────────────────────
+    // Recorded time per segment × this multiplier = motion timeout.
+    // 1.6 = 60% buffer on top of recorded time.
+    // Raise to 2.0 if slow segments time out early.
+    const double TIMEOUT_MULTIPLIER = 1.6;
+
+    // Your robot's real top speed in inches/sec at full power.
+    // Measure: drive full speed, time 1 second, measure distance.
+    // Typical 600rpm VEX drive ≈ 40-55 in/s.
+    const double MAX_SPEED_IPS     = 48.0;
+
+    // Sensor offsets (inches from robot center to sensor face)
     const double FRONT_OFFSET = 7.75;
     const double BACK_OFFSET  = 9.0;
     const double LEFT_OFFSET  = 7.5;
     const double RIGHT_OFFSET = 7.5;
 
-    // EKF — init at pose (0,0,0), moderate uncertainty
     EKFState ekf;
     ekf.x = 0; ekf.y = 0; ekf.theta = 0;
-
-    // Process noise Q (added to P each predict step)
     const double Q[3][3] = {{0.5,0,0},{0,0.3,0},{0,0,0.005}};
-
     lemlib::Pose prevPose = chassis.getPose();
 
     std::string line;
     int step = 0;
+    int lastWaypointStep = 0;
+    double lastHeading = 0;
 
-    bool prev_l1    = false;
-    bool prev_right = false;
-    bool prev_x     = false;
+    bool prev_l1        = false;
+    bool prev_right     = false;
+    bool prev_x         = false;
     bool wingState      = false;
     bool matchloadState = false;
     bool limiterState   = true;
@@ -215,7 +185,7 @@ void odom_ekf_run() {
             pros::delay(100);
         }
 
-        // ── Mechanism replay (unchanged) ──────────────────────────
+        // ── Mechanism replay ─────────────────────────────────────
         if (r1) {
             outtake(200); intake(200); middletake(600); limiter.set_value(1);
         } else if (r2) {
@@ -237,33 +207,26 @@ void odom_ekf_run() {
         prev_x = x_btn;
         // ─────────────────────────────────────────────────────────
 
-        // ── EKF: Predict from odometry delta ─────────────────────
+        // ── EKF predict ──────────────────────────────────────────
         lemlib::Pose currPose = chassis.getPose();
         double dx     = currPose.x - prevPose.x;
         double dy     = currPose.y - prevPose.y;
         double dtheta = (currPose.theta - prevPose.theta) * PI / 180.0;
         prevPose = currPose;
-
-        ekf.x     += dx;
-        ekf.y     += dy;
-        ekf.theta += dtheta;
+        ekf.x += dx; ekf.y += dy; ekf.theta += dtheta;
         for (int i = 0; i < 3; i++)
             for (int j = 0; j < 3; j++)
                 ekf.P[i][j] += Q[i][j];
 
-        // ── EKF: Update from all four distance sensors ────────────
-        // World angles: sensor_world_angle = ekf.theta + sensor_mounting_angle
-        // Front: same dir as robot heading (0 offset), Back: +PI, Left: -PI/2, Right: +PI/2
+        // ── EKF update ───────────────────────────────────────────
         ekf_update(ekf, ekf.theta,            FRONT_OFFSET, fdist_sens.get());
         ekf_update(ekf, ekf.theta + PI,       BACK_OFFSET,  bdist_sens.get());
         ekf_update(ekf, ekf.theta - PI / 2.0, LEFT_OFFSET,  ldist_sens.get());
         ekf_update(ekf, ekf.theta + PI / 2.0, RIGHT_OFFSET, rdist_sens.get());
 
-        // Re-seed LemLib only once covariance is small enough (converged)
         if (ekf.P[0][0] < 0.5 && ekf.P[1][1] < 0.5) {
-            chassis.setPose(ekf.x, ekf.y,
-                            ekf.theta * 180.0 / PI, false);
-            prevPose = chassis.getPose(); // sync prevPose after re-seed
+            chassis.setPose(ekf.x, ekf.y, ekf.theta * 180.0 / PI, false);
+            prevPose = chassis.getPose();
         }
         // ─────────────────────────────────────────────────────────
 
@@ -273,30 +236,121 @@ void odom_ekf_run() {
         double actY     = chassis.getPose().y;
         double actTheta = chassis.getPose().theta;
 
-        double fx = filex - actX, fy = filey - actY;
+        double fx   = filex - actX;
+        double fy   = filey - actY;
         double dist = std::sqrt(fx*fx + fy*fy);
-        double thetaRad = actTheta * PI / 180.0;
-        double dot = fx * std::sin(thetaRad) + fy * std::cos(thetaRad);
-        bool goingBackwards = (dist > 1.0) && (dot < 0);
 
-        chassis.moveToPoint(filex, filey, MOVE_TIMEOUT_MS,
-                            {.forwards  = !goingBackwards,
-                             .maxSpeed  = MAX_SPEED,
-                             .minSpeed  = MIN_SPEED}, false);
+        double thetaRad = actTheta * PI / 180.0;
+        double dot      = fx * std::sin(thetaRad) + fy * std::cos(thetaRad);
+        bool goingBackwards = (dist > 1.0) && (dot < 0);
 
         double headingErr = filet - actTheta;
         while (headingErr >  180) headingErr -= 360;
         while (headingErr < -180) headingErr += 360;
-        if (std::abs(headingErr) > TURN_THRESHOLD_DEG)
-            chassis.turnToHeading(filet, TURN_TIMEOUT_MS, {}, false);
 
-        pros::delay(20);
+        // ── Dynamic timeout + speed from recorded cadence ─────────
+        int    framesDelta     = step - lastWaypointStep;
+        int    recordedTimeMs  = framesDelta * 20;
+        int    dynamicTimeout  = std::max(200, (int)(recordedTimeMs * TIMEOUT_MULTIPLIER));
+
+        // Speed the driver was moving during this segment (in/s)
+        double recordedSpeedIPS = (recordedTimeMs > 0)
+                                  ? (dist / (recordedTimeMs / 1000.0))
+                                  : 20.0;
+
+        // Map to 0-127 motor speed, clamped to [MIN_SPEED, MAX_SPEED]
+        int dynamicMaxSpeed = (int)(recordedSpeedIPS / MAX_SPEED_IPS * 127.0);
+        dynamicMaxSpeed = std::max(MIN_SPEED, std::min(MAX_SPEED, dynamicMaxSpeed));
+
+        // earlyExit scales with speed — fast = exit earlier, slow = precise
+        float earlyExit = std::min(EARLY_EXIT_MAX,
+                          (float)(dist * 0.4 * (recordedSpeedIPS / MAX_SPEED_IPS)));
+        earlyExit = std::max(0.5f, earlyExit);
+
+        lastWaypointStep = step;
+        // ─────────────────────────────────────────────────────────
+
+        double turnRatio = (dist > 0.5) ? (std::abs(headingErr) / dist) : 999.0;
+        bool isPureTurn  = (std::abs(headingErr) > TURN_DETECT_DEG) &&
+                           (turnRatio > TURN_RATIO_THRESH || dist < SHORT_MOVE_IN);
+
+        if (isPureTurn) {
+            // ── IN-PLACE TURN ─────────────────────────────────────
+            // Scan ahead to find the final heading of this turn
+            // sequence, then fire ONE clean blocking turn to it.
+            double finalTurnHeading = filet;
+            std::streampos savedPos = fs.tellg();
+            std::string peekLine;
+
+            while (std::getline(fs, peekLine)) {
+                if (peekLine.empty()) continue;
+                std::stringstream ps(peekLine);
+                std::string pv;
+                double px, py, pt;
+                try {
+                    std::getline(ps, pv, ' '); px = std::stod(pv);
+                    std::getline(ps, pv, ' '); py = std::stod(pv);
+                    std::getline(ps, pv, ' '); pt = std::stod(pv);
+                } catch (...) { continue; }
+
+                double pdx    = px - actX;
+                double pdy    = py - actY;
+                double pdist  = std::sqrt(pdx*pdx + pdy*pdy);
+                double pherr  = pt - actTheta;
+                while (pherr >  180) pherr -= 360;
+                while (pherr < -180) pherr += 360;
+                double pratio = (pdist > 0.5) ? (std::abs(pherr) / pdist) : 999.0;
+                bool stillTurning = (std::abs(pherr) > TURN_DETECT_DEG) &&
+                                    (pratio > TURN_RATIO_THRESH || pdist < SHORT_MOVE_IN);
+
+                if (stillTurning) finalTurnHeading = pt;
+                else break;
+            }
+            fs.clear();
+            fs.seekg(savedPos);
+
+            // Single blocking turn to end of full turn sequence
+            int turnTimeout = std::max(600, dynamicTimeout);
+            chassis.turnToHeading(finalTurnHeading, turnTimeout,
+                                  {.maxSpeed = 90},
+                                  false);
+
+        } else if (dist < SHORT_MOVE_IN) {
+            // ── SHORT PRECISION MOVE ──────────────────────────────
+            chassis.moveToPoint(filex, filey, dynamicTimeout,
+                                {.forwards = !goingBackwards,
+                                 .maxSpeed = std::min(80, dynamicMaxSpeed),
+                                 .minSpeed = 0},
+                                false);
+
+        } else {
+            // ── LONG STRAIGHT / SWEEPING ARC ─────────────────────
+            chassis.moveToPoint(filex, filey, dynamicTimeout,
+                                {.forwards       = !goingBackwards,
+                                 .maxSpeed       = dynamicMaxSpeed,
+                                 .minSpeed       = MIN_SPEED,
+                                 .earlyExitRange = earlyExit},
+                                true);
+        }
+
+        lastHeading = filet;
         step++;
     }
+
+    // ── Settle and final heading fix ──────────────────────────────
+    chassis.waitUntilDone();
+
+    double actThetaFinal = chassis.getPose().theta;
+    double finalErr = lastHeading - actThetaFinal;
+    while (finalErr >  180) finalErr -= 360;
+    while (finalErr < -180) finalErr += 360;
+    if (std::abs(finalErr) > TURN_THRESHOLD_DEG)
+        chassis.turnToHeading(lastHeading, TURN_TIMEOUT_MS, {}, false);
 
     controller.print(0, 0, "Done: %d steps    ", step);
     fs.close();
 }
+
 
 void angular_tuning() {
     chassis.setPose(0, 0, 0);
@@ -309,16 +363,54 @@ void lateral_tuning() {
 }
 
 void left_auton() {
-    chassis.setPose(0, 0, 0);
-    chassis.moveToPose(0, 20, 0, 2000);
+    chassis.setPose(0,0,0);
+    wing.set_value(0);
+    limiter.set_value(1);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtake(200);
+    //Picking up 3 blocks
+    chassis.moveToPose(0, 13, 10, 1000, {.forwards = true, .lead = 0, .minSpeed=30}, false);
+    chassis.moveToPose(0, 17, 10, 1000, {.forwards = true, .lead = 0, .minSpeed=50}, false);
+
+    //pros::delay(100);
+    chassis.moveToPose(0, 19, -3, 1000, {.forwards = true, .lead = 0, .maxSpeed=30}, false);
+    //pros::delay(100);
+    chassis.moveToPose(0,27,10,1000,{.forwards=true, .lead=0, .maxSpeed=35},false);
+    //pros::delay(100);
+    chassis.turnToHeading(-109,500);
+    //middle goal scoring
+    chassis.moveToPoint(20,37,2000,{.forwards=false,.maxSpeed=65},false);
+    chassis.turnToHeading(-113,200);
+    limiter.set_value(1);
+    intake(0);
+    outtake(0);
+    middletake(0);
+    // FIRST TRILAT
+    //matchloading
+    chassis.moveToPoint(-34,11,2500,{.forwards=true,.maxSpeed=80},false);
+    chassis.turnToHeading(-156,500);
+    //pros::delay(50);
+    matchLoad.set_value(true);
+    
+    chassis.moveToPoint(-36,0,500,{.forwards=true},false);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtake(200);
+    pros::delay(500);
+    //long goal scoring
+    chassis.turnToHeading(-160,500);
+    chassis.moveToPoint(-26,35,1500,{.forwards=false},false);
+    matchLoad.set_value(false);
+    limiter.set_value(0);
+    pros::delay(2500);
+
 }
 
 void right_auton() {
     chassis.setPose(0, 0, 0);
-    // add right auton path here
 }
 
 void skills_auton() {
-    chassis.setPose(0, 0, 0);
-    // add skills path here
+    
 }
