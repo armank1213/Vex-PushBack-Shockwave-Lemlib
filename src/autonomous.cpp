@@ -1,5 +1,6 @@
 #include "robot/autonomous.hpp"
 #include "lemlib/chassis/chassis.hpp"
+#include "pros/motors.h"
 #include "robot/chassis_config.hpp" // IWYU pragma: keep
 #include "robot/hardware.hpp" // IWYU pragma: keep
 #include "robot/motors.hpp" // IWYU pragma: keep
@@ -83,7 +84,7 @@ static void ekf_update(EKFState& s,
 // ─────────────────────────────────────────────────────────────
 
 
-void odom_ekf_run() {
+/*void odom_ekf_run() {
     if (!pros::usd::is_installed()) {
         controller.print(0, 0, "FAIL: no SD card  ");
         pros::delay(1000);
@@ -349,7 +350,7 @@ void odom_ekf_run() {
 
     controller.print(0, 0, "Done: %d steps    ", step);
     fs.close();
-}
+}*/
 
 
 void angular_tuning() {
@@ -410,7 +411,54 @@ void left_auton() {
 void right_auton() {
     chassis.setPose(0, 0, 0);
 }
-
+void park_auton() {
+chassis.setPose(0,0,0);
+    wing.set_value(0);
+    limiter.set_value(1);
+    //Matchload No.1
+    chassis.moveToPoint(-2,41,2000,{.forwards=true},false);
+    chassis.turnToHeading(91,500,{});
+    matchLoad.set_value(false);
+    chassis.moveToPoint(14,0,2000,{.forwards=true},false);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    pros::delay(2000);}
 void skills_auton() {
-    
+
+    chassis.setPose(0,0,0);
+    wing.set_value(0);
+    limiter.set_value(1);
+    //Matchload No.1
+    chassis.moveToPoint(-2,44,2000,{.forwards=true},false);
+    chassis.turnToHeading(91,500,{});
+    matchLoad.set_value(true);
+    chassis.moveToPoint(12,43,2000,{.forwards=true},false);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    chassis.moveToPoint(14,43,2000,{.forwards=true},false);
+    outtakeMotor.move(-200);
+    pros::delay(4000);
+    intakeMotor.move(0);
+    middleMotor.move(0);
+    outtakeMotor.move(0);
+    chassis.moveToPoint(-7,43,1000,{.forwards=false},false);
+    matchLoad.set_value(false);
+    chassis.turnToHeading(177,200,{});
+    chassis.moveToPoint(-7,27,1000,{.forwards=true},false);
+    chassis.turnToHeading(267,1000,{});
+    chassis.moveToPoint(-89,22,3000,{.forwards=true},false);
+    chassis.turnToHeading(355,2000,{});
+    chassis.moveToPoint(-90,42,2000,{.forwards=true},false);
+    chassis.turnToHeading(267,2000,{});
+    chassis.moveToPoint(-79,41,2000,{.forwards=false},false);
+    limiter.set_value(0);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    pros::delay(4000);
+
+    //matchLoad.set_value(true);
+
+
 }
