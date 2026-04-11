@@ -427,23 +427,25 @@ chassis.setPose(0,0,0);
 
 
 void skills_auton() {
+    //Initial bot state
     chassis.setPose(0,0,0);
     wing.set_value(0);
     limiter.set_value(1);
-    //Matchload No.1
+    matchLoad.set_value(false);
+    //Movement to line up for park
     chassis.moveToPoint(-2,41,2000,{.forwards=true},false);
     chassis.turnToHeading(91,500,{});
-    matchLoad.set_value(false);
-    chassis.moveToPoint(18,0,2000,{.forwards=true, .minSpeed=80},false);
+    //Drive into park
+    chassis.moveToPoint(18,0,2000,{.forwards=true, .maxSpeed=110, .minSpeed=95},false); 
+    // ^ Takes advantage of unintended response during lack of theta value, Also adjusted the speed value to improve consistency. 
+    //Pick up blocks that dont clear in park
     intakeMotor.move(-200);
     middleMotor.move(-600);
     outtakeMotor.move(-200);
     pros::delay(2000);
-    chassis.moveToPoint(14,0,2000,{.forwards=false, .minSpeed=100},false);
 
-}
-    /*
-    chassis.setPose(0,0,0);
+
+    /*chassis.setPose(0,0,0);
     wing.set_value(0);
     limiter.set_value(1);
     //Matchload No.1
@@ -460,9 +462,21 @@ void skills_auton() {
     intakeMotor.move(0);
     middleMotor.move(0);
     outtakeMotor.move(0);
-    chassis.moveToPoint(-7,43,1000,{.forwards=false},false);
+    //chassis.moveToPoint(-7,43,1000,{.forwards=false},false);
     matchLoad.set_value(false);
-    chassis.turnToHeading(177,200,{});
+    chassis.moveToPoint(-18,41,1500,{.forwards=false},false);
+    limiter.set_value(0);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    pros::delay(3500);
+    intakeMotor.move(0);
+    middleMotor.move(0);
+    outtakeMotor.move(0);
+    chassis.moveToPose(18,26,180, 1500,{.forwards=true, .lead=.2, .maxSpeed=110, .minSpeed=95},false); // og y 16
+    */
+    
+    /*chassis.turnToHeading(177,200,{});
     chassis.moveToPoint(-7,27,1000,{.forwards=true},false);
     chassis.turnToHeading(267,1000,{});
     chassis.moveToPose(-89,22,267,3000,{.forwards=true},false);
@@ -495,6 +509,5 @@ void skills_auton() {
     outtakeMotor.move(-200);
     pros::delay(4000);
     //chassis.moveToPoint(-80,43,2000,{.forwards=false},false);
-
+*/
 }
-    */
