@@ -24,7 +24,8 @@ extern pros::Motor middleMotor;
 extern pros::Imu imu;
 extern pros::Optical colorSensor;
 extern pros::Distance distanceSensor;
-extern pros::Optical limiter_light;
+// Disabled: port 6 collision with bdist_sens.
+// extern pros::Optical limiter_light;
 
 extern pros::Distance ldist_sens;
 extern pros::Distance rdist_sens;

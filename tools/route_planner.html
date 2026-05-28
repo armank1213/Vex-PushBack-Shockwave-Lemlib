@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pushback Route Planner</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel2: #1c232d; --border: #2d333b;
+    --text: #e6edf3; --muted: #8b949e; --accent: #2f81f7; --accent2: #3fb950;
+    --red: #f85149; --blue: #388bfd; --warn: #d29922; --gold: #d6a046;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .app { display: flex; height: 100vh; overflow: hidden; }
+  .stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; min-width: 0; }
+  canvas {
+    background: #0a0d11; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5);
+    cursor: crosshair; touch-action: none; max-width: 100%; max-height: 100%;
+  }
+  .panel {
+    width: 350px; flex-shrink: 0; background: var(--panel);
+    border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .panel h1 { font-size: 15px; margin: 0; padding: 16px 18px; border-bottom: 1px solid var(--border); letter-spacing: .3px; }
+  .panel h1 span { color: var(--accent); }
+  .sec { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .sec h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px 0; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  label.lbl { font-size: 12px; color: var(--muted); flex: 1; }
+  input[type="number"], input[type="text"] {
+    width: 84px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 13px; font-variant-numeric: tabular-nums;
+  }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+  .val { font-size: 13px; font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
+  select { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 13px; flex: 1; }
+  button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 9px 12px; font-size: 13px; cursor: pointer; font-weight: 500; transition: .12s;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .btns { display: flex; gap: 8px; }
+  .btns button { flex: 1; }
+  .mech { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .mech button { padding: 8px 4px; font-size: 11px; font-weight: 600; }
+  .mech button.on { background: var(--accent2); border-color: var(--accent2); color: #06210d; }
+  .mech button.pulse.on { background: var(--warn); border-color: var(--warn); color: #271c02; }
+  .subh { font-size: 10px; color: var(--muted); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .stat { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+  .stat .k { color: var(--muted); }
+  .stat .v { font-variant-numeric: tabular-nums; }
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .pill { display: inline-block; padding: 2px 7px; border-radius: 20px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); }
+  .empty { color: var(--muted); font-size: 12px; font-style: italic; }
+  kbd { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 10px; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage">
+    <canvas id="field" width="760" height="760"></canvas>
+  </div>
+
+  <div class="panel">
+    <h1>Pushback <span>Route Planner</span></h1>
+
+    <div class="sec">
+      <h2>How to</h2>
+      <div class="hint">
+        Click empty field = add waypoint. Drag a point = move.
+        Click a point = select. <kbd>right-click</kbd> = delete.
+        Drag the gold arrow = set that point's heading.
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Field display</h2>
+      <div class="row"><label class="lbl">Show field elements</label>
+        <input type="checkbox" id="showElems" checked /></div>
+      <div class="row"><label class="lbl">Background image</label>
+        <button id="btnImg" style="flex:0 0 auto;padding:5px 10px">Load…</button>
+        <button id="btnImgClear" style="flex:0 0 auto;padding:5px 10px">Clear</button></div>
+      <div class="row" id="imgOpacityRow" style="display:none"><label class="lbl">Image opacity</label>
+        <input type="range" id="imgOpacity" min="10" max="100" value="85" />
+        <span class="val" id="imgOpacityVal">85%</span></div>
+      <input type="file" id="imgInput" accept="image/*" style="display:none" />
+      <div class="hint" id="imgHint">Upload a top-down field photo to overlay (auto-fit to the field square).</div>
+    </div>
+
+    <div class="sec">
+      <h2>Motion</h2>
+      <div class="row"><label class="lbl">Travel speed</label>
+        <input type="range" id="speed" min="8" max="60" step="1" value="30" />
+        <span class="val" id="speedVal">30 in/s</span></div>
+      <div class="row"><label class="lbl">Heading mode</label>
+        <select id="headMode">
+          <option value="tangent">Face travel direction</option>
+          <option value="hold">Hold start heading</option>
+        </select></div>
+      <div class="row"><label class="lbl">Robot size (in)</label>
+        <input type="number" id="robotSize" value="14" min="6" max="20" step="0.5" /></div>
+    </div>
+
+    <div class="sec">
+      <h2>Selected waypoint</h2>
+      <div id="ptEditor"><div class="empty">No waypoint selected.</div></div>
+    </div>
+
+    <div class="sec" id="mechSec" style="display:none">
+      <h2>Mech actions</h2>
+      <div class="subh">Hold on segment (motors, while driving →)</div>
+      <div class="mech" id="holdGrid"></div>
+      <div class="subh">Pulse here (1-frame press, toggles pneumatics)</div>
+      <div class="mech" id="pulseGrid"></div>
+      <div class="hint" style="margin-top:8px">
+        <b>Hold</b> = button down for every frame on the segment leaving this point
+        (intake/outtake motors). <b>Pulse</b> = single press at this point — replay
+        edge-detects it to flip a pneumatic (wing/matchload/limiter).
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Route stats</h2>
+      <div class="stat"><span class="k">Waypoints</span><span class="v" id="stPts">0</span></div>
+      <div class="stat"><span class="k">Distance</span><span class="v" id="stDist">0.0 in</span></div>
+      <div class="stat"><span class="k">Est. time</span><span class="v" id="stTime">0.00 s</span></div>
+      <div class="stat"><span class="k">Frames (20ms)</span><span class="v" id="stFrames">0</span></div>
+    </div>
+
+    <div class="sec">
+      <h2>Export / Import</h2>
+      <div class="btns" style="margin-bottom:8px">
+        <button class="primary" id="btnExport">Export dtData.txt</button>
+      </div>
+      <div class="btns">
+        <button id="btnImport">Import reference</button>
+        <button class="danger" id="btnClear">Clear route</button>
+      </div>
+      <input type="file" id="fileInput" accept=".txt" style="display:none" />
+      <div class="hint" style="margin-top:10px">
+        Each waypoint of the drawn path becomes a pose the robot drives to.
+        Export writes the 11-column space format the robot reads — one frame per
+        20 ms — exactly what <kbd>mcl_rerun</kbd> replays. Copy to SD root as
+        <kbd>dtData.txt</kbd>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ─── Field constants ──────────────────────────────────────────
+// Field-absolute frame: (0,0) = red-side bottom-left corner.
+// +X right, +Y away from red driver (up on screen). LemLib heading:
+// theta=0 faces +Y, CW positive. Export coords stay in this frame.
+//
+// Frame size kept at 144 to match the robot code (raycastField/start_pose
+// use 144). Official tape-to-tape is 140.43 — field elements below are
+// placed at their literal spec inches, so they sit accurately inside the
+// 144 box (small wall margin on the high side).
+const FIELD_IN = 144;
+const TAPE_IN  = 140.43;        // official tape-line span
+const TILE_IN  = 24;
+const MARGIN   = 46;
+const DT       = 0.02;          // 20 ms frame cadence
+
+// ─── Official Push Back element coords (inches, from spec sheets) ──
+// Field is built on thirds (140.43 / 3 ≈ 46.8). All positions anchor to
+// the tic-tac-toe tape grid below.
+const FIELD_CENTER = TAPE_IN / 2;                 // 70.215
+
+// Single vertical center tape line (the only prominent tape in the render).
+const CENTER_X = FIELD_CENTER;
+
+// Long goals: 48.79" horizontal bars, centered x, near top and bottom.
+const LONG_GOAL_X0 = 45.83, LONG_GOAL_X1 = 94.62;
+const LONG_GOAL_Y  = [23.44, 116.97];             // lower, upper
+
+// Center goal X — fills ~the central third, arms reach its box corners.
+const CG = { x0: 46.65, y0: 46.63, x1: 93.80, y1: 93.78 };
+
+// Park / Load zones: tall rectangles on the side walls (red left, blue right),
+// running vertically between the two long-goal levels. (Blocks/markers omitted.)
+const RED_PARK  = { x0: 0,      y0: 23.44, x1: 14.03,  y1: 116.97 };
+const BLUE_PARK = { x0: 126.42, y0: 23.44, x1: 140.43, y1: 116.97 };
+
+const canvas = document.getElementById("field");
+const ctx = canvas.getContext("2d");
+const CSS_SIZE = 760;
+function setupHiDPI() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = CSS_SIZE * dpr; canvas.height = CSS_SIZE * dpr;
+  canvas.style.width = CSS_SIZE + "px"; canvas.style.height = CSS_SIZE + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+setupHiDPI();
+const PLOT = CSS_SIZE - 2 * MARGIN;
+const SCALE = PLOT / FIELD_IN;
+
+// ─── Transforms ─────────────────────────────────────────────────
+function f2s(x, y) { return { px: MARGIN + x * SCALE, py: MARGIN + (FIELD_IN - y) * SCALE }; }
+function s2f(px, py) { return { x: (px - MARGIN) / SCALE, y: FIELD_IN - (py - MARGIN) / SCALE }; }
+
+// ─── State ──────────────────────────────────────────────────────
+// waypoint: { x, y, head:deg|null, hold:{8}, pulse:{8} }
+let waypoints = [];
+let selected = -1;
+let dragMode = null;
+let speed = 30, headMode = "tangent", robotSize = 14;
+let refPath = null;
+let bgImage = null, imgOpacity = 0.85, showElems = true;
+
+const MECH_KEYS = ["r1", "r2", "Y", "B", "L2", "L1", "RIGHT", "X"];
+function emptyBtns() { const b = {}; for (const k of MECH_KEYS) b[k] = 0; return b; }
+
+// ─── Geometry ───────────────────────────────────────────────────
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function headingDeg(dx, dy) { return Math.atan2(dx, dy) * 180 / Math.PI; }   // theta=0 = +Y, CW+
+function tangentHeading(i) {
+  if (waypoints.length < 2) return 0;
+  if (i < waypoints.length - 1) {
+    const a = waypoints[i], b = waypoints[i + 1];
+    if (dist(a, b) > 1e-6) return headingDeg(b.x - a.x, b.y - a.y);
+  }
+  const a = waypoints[i - 1], b = waypoints[i];
+  return headingDeg(b.x - a.x, b.y - a.y);
+}
+function waypointHeading(i) {
+  const wp = waypoints[i];
+  if (wp.head !== null && wp.head !== undefined) return wp.head;
+  if (headMode === "hold") return waypoints[0].head ?? tangentHeading(0);
+  return tangentHeading(i);
+}
+function angDiff(a, b) { return ((b - a + 540) % 360) - 180; }
+function lerpAngle(a, b, t) { return a + angDiff(a, b) * t; }
+function unwrap(prev, cur) { return prev + angDiff(prev, cur); }
+
+// ─── Frame builder ──────────────────────────────────────────────
+// Each segment of the drawn path is interpolated into 20 ms frames at the
+// travel speed. Holds apply to every frame of the outgoing segment; pulses
+// fire on the single frame at the originating waypoint (rising edge).
+function buildFrames() {
+  const frames = [];
+  if (waypoints.length === 0) return frames;
+  const stepDist = Math.max(0.05, speed * DT);
+
+  if (waypoints.length === 1) {
+    frames.push({ x: waypoints[0].x, y: waypoints[0].y, t: waypointHeading(0),
+                  b: mergeBtns(emptyBtns(), waypoints[0].pulse) });
+    return frames;
+  }
+
+  let prevH = waypointHeading(0);
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const p0 = waypoints[i], p1 = waypoints[i + 1];
+    const n = Math.max(1, Math.round(dist(p0, p1) / stepDist));
+    const h0 = waypointHeading(i), h1 = waypointHeading(i + 1);
+    for (let k = 0; k < n; k++) {
+      const t = k / n;
+      const x = p0.x + (p1.x - p0.x) * t;
+      const y = p0.y + (p1.y - p0.y) * t;
+      let theta = unwrap(prevH, lerpAngle(h0, h1, t)); prevH = theta;
+      // hold = segment buttons; pulse only on first frame of segment.
+      const b = { ...p0.hold };
+      if (k === 0) for (const key of MECH_KEYS) if (p0.pulse[key]) b[key] = 1;
+      frames.push({ x, y, t: theta, b });
+    }
+  }
+  const last = waypoints.length - 1;
+  const lastH = unwrap(prevH, waypointHeading(last));
+  const lb = { ...waypoints[last - 1].hold };
+  for (const key of MECH_KEYS) if (waypoints[last].pulse[key]) lb[key] = 1;
+  frames.push({ x: waypoints[last].x, y: waypoints[last].y, t: lastH, b: lb });
+  return frames;
+}
+function mergeBtns(base, pulse) { const b = { ...base }; for (const k of MECH_KEYS) if (pulse[k]) b[k] = 1; return b; }
+
+function framesToText(frames) {
+  return frames.map(fr => {
+    const b = fr.b;
+    return [fr.x.toFixed(3), fr.y.toFixed(3), fr.t.toFixed(3),
+            b.r1, b.r2, b.Y, b.B, b.L2, b.L1, b.RIGHT, b.X].join(" ");
+  }).join("\n") + "\n";
+}
+
+// ─── Rendering ─────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, CSS_SIZE, CSS_SIZE);
+
+  // Background image (auto-fit to field square).
+  if (bgImage) {
+    ctx.globalAlpha = imgOpacity;
+    ctx.drawImage(bgImage, MARGIN, MARGIN, PLOT, PLOT);
+    ctx.globalAlpha = 1;
+  } else {
+    const mid = f2s(0, FIELD_IN / 2), top = f2s(0, FIELD_IN), bot = f2s(0, 0);
+    ctx.fillStyle = "rgba(56,139,253,0.06)"; ctx.fillRect(MARGIN, top.py, PLOT, mid.py - top.py);
+    ctx.fillStyle = "rgba(248,81,73,0.06)"; ctx.fillRect(MARGIN, mid.py, PLOT, bot.py - mid.py);
+  }
+
+  // Grid.
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= FIELD_IN; i += TILE_IN) {
+    const v = f2s(i, 0), h = f2s(0, i);
+    ctx.strokeStyle = (i === 0 || i === FIELD_IN) ? "#3d444d" : "rgba(33,38,45,0.8)";
+    ctx.beginPath(); ctx.moveTo(v.px, MARGIN); ctx.lineTo(v.px, MARGIN + PLOT); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(MARGIN, h.py); ctx.lineTo(MARGIN + PLOT, h.py); ctx.stroke();
+  }
+  ctx.strokeStyle = "#4d5560"; ctx.lineWidth = 2;
+  ctx.strokeRect(MARGIN, MARGIN, PLOT, PLOT);
+
+  // Field elements (vector, from official spec).
+  if (showElems && !bgImage) drawFieldElements();
+
+  // Axis labels.
+  ctx.fillStyle = "#8b949e"; ctx.font = "11px ui-monospace, monospace"; ctx.textAlign = "center";
+  for (let i = 0; i <= FIELD_IN; i += TILE_IN) {
+    ctx.fillText(i, f2s(i, 0).px, MARGIN + PLOT + 16);
+    ctx.textAlign = "right"; ctx.fillText(i, MARGIN - 8, f2s(0, i).py + 4); ctx.textAlign = "center";
+  }
+  const o = f2s(0, 0);
+  ctx.fillStyle = "#f0c040"; ctx.beginPath(); ctx.arc(o.px, o.py, 4, 0, 7); ctx.fill();
+  ctx.textAlign = "left"; ctx.font = "10px ui-monospace, monospace";
+  ctx.fillText("(0,0)", o.px + 7, o.py - 6);
+  ctx.fillStyle = "rgba(248,81,73,0.8)"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText("◄ RED DRIVER (y=0) ►", MARGIN + PLOT / 2, MARGIN + PLOT + 34);
+
+  // Reference path.
+  if (refPath && refPath.length > 1) {
+    ctx.strokeStyle = "rgba(210,153,34,0.5)"; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    refPath.forEach((p, i) => { const s = f2s(p.x, p.y); i ? ctx.lineTo(s.px, s.py) : ctx.moveTo(s.px, s.py); });
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // Route.
+  if (waypoints.length > 1) {
+    ctx.strokeStyle = "#2f81f7"; ctx.lineWidth = 3; ctx.lineJoin = "round";
+    ctx.beginPath();
+    waypoints.forEach((wp, i) => { const s = f2s(wp.x, wp.y); i ? ctx.lineTo(s.px, s.py) : ctx.moveTo(s.px, s.py); });
+    ctx.stroke();
+    for (let i = 0; i < waypoints.length - 1; i++) drawArrow(waypoints[i], waypoints[i + 1]);
+  }
+  if (waypoints.length > 0) drawRobot(0);
+
+  waypoints.forEach((wp, i) => {
+    const s = f2s(wp.x, wp.y);
+    const isSel = i === selected;
+    const hasAction = MECH_KEYS.some(k => wp.hold[k] || wp.pulse[k]);
+    ctx.fillStyle = i === 0 ? "#3fb950" : (isSel ? "#2f81f7" : "#adbac7");
+    ctx.strokeStyle = "#0a0d11"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(s.px, s.py, isSel ? 8 : 6, 0, 7); ctx.fill(); ctx.stroke();
+    if (hasAction) { ctx.strokeStyle = "#d6a046"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(s.px, s.py, isSel ? 12 : 10, 0, 7); ctx.stroke(); }
+    ctx.fillStyle = "#0a0d11"; ctx.font = "bold 10px ui-monospace, monospace"; ctx.textAlign = "center";
+    ctx.fillText(i, s.px, s.py + 3.5);
+  });
+  if (selected >= 0) drawHeadingHandle(selected);
+}
+
+function elemLabel(text, x, y) {
+  const s = f2s(x, y);
+  ctx.fillStyle = "rgba(230,237,243,0.55)"; ctx.font = "9px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText(text, s.px, s.py + 3);
+}
+
+function drawFieldElements() {
+  // Single vertical center tape line.
+  const ca = f2s(CENTER_X, 0), cb = f2s(CENTER_X, FIELD_IN);
+  ctx.strokeStyle = "rgba(230,237,243,0.30)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(ca.px, ca.py); ctx.lineTo(cb.px, cb.py); ctx.stroke();
+
+  // Park / Load zones (tall side rectangles).
+  drawLoader(RED_PARK, "rgba(248,81,73,0.16)", "rgba(248,81,73,0.85)", "Red park/load");
+  drawLoader(BLUE_PARK, "rgba(56,139,253,0.16)", "rgba(56,139,253,0.85)", "Blue park/load");
+
+  // Long goals (horizontal bars near top + bottom).
+  ctx.fillStyle = "rgba(214,160,70,0.30)"; ctx.strokeStyle = "rgba(214,160,70,0.85)"; ctx.lineWidth = 1.5;
+  for (const cy of LONG_GOAL_Y) {
+    const a = f2s(LONG_GOAL_X0, cy + 2.6);
+    const b = f2s(LONG_GOAL_X1, cy - 2.6);
+    ctx.fillRect(a.px, a.py, b.px - a.px, b.py - a.py);
+    ctx.strokeRect(a.px, a.py, b.px - a.px, b.py - a.py);
+    elemLabel("Long Goal", FIELD_CENTER, cy);
+  }
+
+  // Center goal X.
+  drawCenterGoal();
+}
+
+// Two crossed bars between the central-third tape-box corners + diamond.
+function drawCenterGoal() {
+  const w = 6 * SCALE;
+  const c00 = f2s(CG.x0, CG.y0), c11 = f2s(CG.x1, CG.y1);   // ↗ diagonal
+  const c01 = f2s(CG.x0, CG.y1), c10 = f2s(CG.x1, CG.y0);   // ↘ diagonal
+  ctx.fillStyle = "rgba(160,170,180,0.16)"; ctx.strokeStyle = "rgba(200,210,220,0.7)";
+  ctx.lineWidth = w; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(c00.px, c00.py); ctx.lineTo(c11.px, c11.py); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(c01.px, c01.py); ctx.lineTo(c10.px, c10.py); ctx.stroke();
+  ctx.lineCap = "butt"; ctx.lineWidth = 1;
+  // central diamond (upper-goal opening, 3.76" per the spec).
+  const s = f2s(FIELD_CENTER, FIELD_CENTER), d = 5 * SCALE;
+  ctx.fillStyle = "rgba(240,192,64,0.25)"; ctx.strokeStyle = "rgba(240,192,64,0.9)"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(s.px, s.py - d); ctx.lineTo(s.px + d, s.py);
+  ctx.lineTo(s.px, s.py + d); ctx.lineTo(s.px - d, s.py); ctx.closePath(); ctx.fill(); ctx.stroke();
+  elemLabel("Center Goal", FIELD_CENTER, FIELD_CENTER - 34);
+}
+
+function drawLoader(L, fill, stroke, label) {
+  const a = f2s(L.x0, L.y1), b = f2s(L.x1, L.y0);
+  ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 1.5;
+  ctx.fillRect(a.px, a.py, b.px - a.px, b.py - a.py);
+  ctx.strokeRect(a.px, a.py, b.px - a.px, b.py - a.py);
+  elemLabel(label, (L.x0 + L.x1) / 2, (L.y0 + L.y1) / 2);
+}
+
+function drawArrow(a, b) {
+  const sa = f2s(a.x, a.y), sb = f2s(b.x, b.y);
+  const mx = (sa.px + sb.px) / 2, my = (sa.py + sb.py) / 2;
+  const ang = Math.atan2(sb.py - sa.py, sb.px - sa.px);
+  ctx.fillStyle = "rgba(47,129,247,0.9)";
+  ctx.save(); ctx.translate(mx, my); ctx.rotate(ang);
+  ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawRobot(i) {
+  const wp = waypoints[i], s = f2s(wp.x, wp.y);
+  const h = waypointHeading(i) * Math.PI / 180;
+  const half = (robotSize / 2) * SCALE;
+  const fx = Math.sin(h), fy = Math.cos(h);
+  const screenAng = Math.atan2(-fy, fx);
+  ctx.save(); ctx.translate(s.px, s.py); ctx.rotate(screenAng);
+  ctx.fillStyle = "rgba(63,185,80,0.14)"; ctx.strokeStyle = "rgba(63,185,80,0.7)"; ctx.lineWidth = 2;
+  ctx.fillRect(-half, -half, 2 * half, 2 * half); ctx.strokeRect(-half, -half, 2 * half, 2 * half);
+  ctx.fillStyle = "rgba(63,185,80,0.9)";
+  ctx.beginPath(); ctx.moveTo(half, 0); ctx.lineTo(half - 8, -6); ctx.lineTo(half - 8, 6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawHeadingHandle(i) {
+  const wp = waypoints[i], s = f2s(wp.x, wp.y);
+  const h = waypointHeading(i) * Math.PI / 180;
+  const hx = s.px + Math.sin(h) * 42, hy = s.py - Math.cos(h) * 42;
+  ctx.strokeStyle = "#d6a046"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(s.px, s.py); ctx.lineTo(hx, hy); ctx.stroke();
+  ctx.fillStyle = "#d6a046"; ctx.beginPath(); ctx.arc(hx, hy, 6, 0, 7); ctx.fill();
+}
+
+// ─── Hit testing ────────────────────────────────────────────────
+function hitPoint(px, py) {
+  for (let i = waypoints.length - 1; i >= 0; i--) {
+    const s = f2s(waypoints[i].x, waypoints[i].y);
+    if (Math.hypot(px - s.px, py - s.py) <= 11) return i;
+  }
+  return -1;
+}
+function hitHeadingHandle(px, py) {
+  if (selected < 0) return false;
+  const wp = waypoints[selected], s = f2s(wp.x, wp.y);
+  const h = waypointHeading(selected) * Math.PI / 180;
+  const hx = s.px + Math.sin(h) * 42, hy = s.py - Math.cos(h) * 42;
+  return Math.hypot(px - hx, py - hy) <= 10;
+}
+
+// ─── Pointer ────────────────────────────────────────────────────
+function canvasPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+  return { px: cx * (CSS_SIZE / r.width), py: cy * (CSS_SIZE / r.height) };
+}
+function clampField(v) { return Math.max(0, Math.min(FIELD_IN, v)); }
+
+function onDown(e) {
+  e.preventDefault();
+  const { px, py } = canvasPos(e);
+  if (hitHeadingHandle(px, py)) { dragMode = "head"; return; }
+  const hit = hitPoint(px, py);
+  if (hit >= 0) { selected = hit; dragMode = "move"; refreshPanel(); draw(); return; }
+  const f = s2f(px, py);
+  if (f.x < 0 || f.x > FIELD_IN || f.y < 0 || f.y > FIELD_IN) return;
+  waypoints.push({ x: clampField(f.x), y: clampField(f.y), head: null, hold: emptyBtns(), pulse: emptyBtns() });
+  selected = waypoints.length - 1; dragMode = "move"; refreshPanel(); draw();
+}
+function onMove(e) {
+  if (!dragMode) return;
+  e.preventDefault();
+  const { px, py } = canvasPos(e);
+  if (dragMode === "move") {
+    const f = s2f(px, py);
+    waypoints[selected].x = clampField(f.x); waypoints[selected].y = clampField(f.y);
+  } else if (dragMode === "head") {
+    const wp = waypoints[selected], s = f2s(wp.x, wp.y);
+    waypoints[selected].head = headingDeg(px - s.px, -(py - s.py));
+  }
+  refreshPanel(); draw();
+}
+function onUp() { dragMode = null; }
+
+canvas.addEventListener("mousedown", onDown);
+window.addEventListener("mousemove", onMove);
+window.addEventListener("mouseup", onUp);
+canvas.addEventListener("touchstart", onDown, { passive: false });
+canvas.addEventListener("touchmove", onMove, { passive: false });
+window.addEventListener("touchend", onUp);
+canvas.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  const { px, py } = canvasPos(e);
+  const hit = hitPoint(px, py);
+  if (hit >= 0) {
+    waypoints.splice(hit, 1);
+    if (selected === hit) selected = -1; else if (selected > hit) selected--;
+    refreshPanel(); draw();
+  }
+});
+
+// ─── Panel ──────────────────────────────────────────────────────
+const ptEditor = document.getElementById("ptEditor");
+const mechSec = document.getElementById("mechSec");
+const holdGrid = document.getElementById("holdGrid");
+const pulseGrid = document.getElementById("pulseGrid");
+
+function refreshStatsOnly() {
+  const frames = buildFrames();
+  let d = 0;
+  for (let i = 0; i < waypoints.length - 1; i++) d += dist(waypoints[i], waypoints[i + 1]);
+  document.getElementById("stDist").textContent = d.toFixed(1) + " in";
+  document.getElementById("stTime").textContent = (frames.length * DT).toFixed(2) + " s";
+  document.getElementById("stFrames").textContent = frames.length;
+}
+
+function refreshPanel() {
+  document.getElementById("stPts").textContent = waypoints.length;
+  refreshStatsOnly();
+  document.getElementById("btnExport").disabled = waypoints.length < 2;
+
+  if (selected < 0 || selected >= waypoints.length) {
+    ptEditor.innerHTML = '<div class="empty">No waypoint selected.</div>';
+    mechSec.style.display = "none"; return;
+  }
+  const wp = waypoints[selected];
+  const autoH = tangentHeading(selected).toFixed(1);
+  ptEditor.innerHTML = `
+    <div class="row"><label class="lbl">Index</label>
+      <span class="pill">${selected === 0 ? "START" : "#" + selected}</span></div>
+    <div class="row"><label class="lbl">X (in)</label>
+      <input type="number" id="inX" value="${wp.x.toFixed(2)}" step="0.5" /></div>
+    <div class="row"><label class="lbl">Y (in)</label>
+      <input type="number" id="inY" value="${wp.y.toFixed(2)}" step="0.5" /></div>
+    <div class="row"><label class="lbl">Heading (deg)</label>
+      <input type="number" id="inH" value="${(wp.head ?? tangentHeading(selected)).toFixed(1)}" step="1" /></div>
+    <div class="row"><label class="lbl">${wp.head === null ? "auto = " + autoH + "°" : "override set"}</label>
+      <button id="btnAutoH" style="padding:5px 10px">Auto heading</button></div>
+    <div class="btns" style="margin-top:6px"><button class="danger" id="btnDel">Delete point</button></div>`;
+
+  document.getElementById("inX").addEventListener("input", e => { wp.x = clampField(parseFloat(e.target.value) || 0); draw(); refreshStatsOnly(); });
+  document.getElementById("inY").addEventListener("input", e => { wp.y = clampField(parseFloat(e.target.value) || 0); draw(); refreshStatsOnly(); });
+  document.getElementById("inH").addEventListener("input", e => { wp.head = parseFloat(e.target.value) || 0; draw(); });
+  document.getElementById("btnAutoH").addEventListener("click", () => { wp.head = null; refreshPanel(); draw(); });
+  document.getElementById("btnDel").addEventListener("click", () => { waypoints.splice(selected, 1); selected = -1; refreshPanel(); draw(); });
+
+  // Mech grids.
+  const isLast = selected === waypoints.length - 1;
+  mechSec.style.display = "block";
+  holdGrid.innerHTML = ""; pulseGrid.innerHTML = "";
+  for (const k of MECH_KEYS) {
+    // Hold (segment) — hidden meaning on last point (no outgoing segment).
+    const hb = document.createElement("button");
+    hb.textContent = k; hb.className = wp.hold[k] ? "on" : "";
+    hb.disabled = isLast;
+    hb.addEventListener("click", () => { wp.hold[k] = wp.hold[k] ? 0 : 1; hb.className = wp.hold[k] ? "on" : ""; draw(); });
+    holdGrid.appendChild(hb);
+    // Pulse (point) — valid on any point including last.
+    const pb = document.createElement("button");
+    pb.textContent = k; pb.className = "pulse" + (wp.pulse[k] ? " on" : "");
+    pb.addEventListener("click", () => { wp.pulse[k] = wp.pulse[k] ? 0 : 1; pb.className = "pulse" + (wp.pulse[k] ? " on" : ""); draw(); });
+    pulseGrid.appendChild(pb);
+  }
+}
+
+// ─── Controls ───────────────────────────────────────────────────
+document.getElementById("speed").addEventListener("input", e => {
+  speed = parseInt(e.target.value); document.getElementById("speedVal").textContent = speed + " in/s"; refreshStatsOnly();
+});
+document.getElementById("headMode").addEventListener("change", e => { headMode = e.target.value; draw(); refreshPanel(); });
+document.getElementById("robotSize").addEventListener("input", e => { robotSize = parseFloat(e.target.value) || 14; draw(); });
+document.getElementById("showElems").addEventListener("change", e => { showElems = e.target.checked; draw(); });
+
+document.getElementById("btnImg").addEventListener("click", () => document.getElementById("imgInput").click());
+document.getElementById("imgInput").addEventListener("change", e => {
+  const file = e.target.files[0]; if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    bgImage = img;
+    document.getElementById("imgOpacityRow").style.display = "flex";
+    document.getElementById("imgHint").textContent = "Image loaded. Toggle “Show field elements” off if it overlaps.";
+    draw();
+  };
+  img.src = URL.createObjectURL(file);
+  e.target.value = "";
+});
+document.getElementById("btnImgClear").addEventListener("click", () => {
+  bgImage = null; document.getElementById("imgOpacityRow").style.display = "none";
+  document.getElementById("imgHint").textContent = "Upload a top-down field photo to overlay (auto-fit to the field square)."; draw();
+});
+document.getElementById("imgOpacity").addEventListener("input", e => {
+  imgOpacity = parseInt(e.target.value) / 100; document.getElementById("imgOpacityVal").textContent = e.target.value + "%"; draw();
+});
+
+document.getElementById("btnClear").addEventListener("click", () => {
+  if (waypoints.length && !confirm("Clear the whole route?")) return;
+  waypoints = []; selected = -1; refPath = null; refreshPanel(); draw();
+});
+document.getElementById("btnExport").addEventListener("click", () => {
+  const frames = buildFrames(); if (frames.length < 2) return;
+  const blob = new Blob([framesToText(frames)], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "dtData.txt"; a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById("btnImport").addEventListener("click", () => document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change", e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    refPath = [];
+    reader.result.split(/\r?\n/).forEach(line => {
+      const p = line.trim().split(/[\s,]+/);
+      if (p.length >= 2) {
+        const x = parseFloat(p[0]), y = parseFloat(p[1]);
+        if (!isNaN(x) && !isNaN(y)) refPath.push({ x, y });
+      }
+    });
+    draw();
+  };
+  reader.readAsText(file); e.target.value = "";
+});
+
+// ─── Init ───────────────────────────────────────────────────────
+refreshPanel();
+draw();
+</script>
+</body>
+</html>

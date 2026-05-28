@@ -2,9 +2,9 @@
 
 // Basic motor control functions
 void intake(int intakeRPM);
-void outtake(int oputtakeRPM);
+void outtake(int outtakeRPM);
 void middletake(int middleRPM);
 
 // Control functions
 void control();
-void outtakeControl();
+void middleControl();

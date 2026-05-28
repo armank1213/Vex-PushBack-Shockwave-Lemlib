@@ -30,11 +30,12 @@ void limiterToggle() {
     if (currentY && !lastYButtonState) {
         limiterPistonToggle = !limiterPistonToggle;
         limiter.set_value(limiterPistonToggle);
-        if (limiterPistonToggle == true) {
-            limiter_light.set_led_pwm(100);
-        } else {
-            limiter_light.set_led_pwm(0);
-        }
+        // limiter_light disabled — port 6 collision with bdist_sens
+        // if (limiterPistonToggle == true) {
+        //     limiter_light.set_led_pwm(100);
+        // } else {
+        //     limiter_light.set_led_pwm(0);
+        // }
     }
     lastYButtonState = currentY;
 }

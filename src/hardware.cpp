@@ -15,7 +15,8 @@ pros::Motor middleMotor(7, pros::v5::MotorGears::blue);
 // Sensors
 pros::Optical colorSensor(8); 
 pros::Distance distanceSensor(2); // Also used for color sorting
-pros::Optical limiter_light(6); // Used for limiter state indication
+// Port 6 collision with bdist_sens. Re-port before re-enabling.
+// pros::Optical limiter_light(6); // Used for limiter state indication
 pros::Imu imu(3);
 pros::Rotation vertical_rotation(-11);
 pros::Rotation horizontal_rotation(20);
