@@ -13,15 +13,27 @@ namespace {
 
 constexpr double PI = 3.14159265358979323846;
 
-constexpr double FRONT_OFFSET = 7.75;
-constexpr double BACK_OFFSET  = 9.00;
-constexpr double LEFT_OFFSET  = 7.50;
-constexpr double RIGHT_OFFSET = 7.50;
+// Sensor mount geometry lives in robot/field_model.hpp (field::FRONT, ...).
 
 constexpr int    CONF_GATE = 40;
+constexpr double CONF_DIST_MM = 200.0;   // VEX: confidence only valid above this
+constexpr double DIST_MIN_MM  = 20.0;
+constexpr double DIST_MAX_MM  = 2000.0;  // get()==9999 => no object
 constexpr double R_SENSOR  = 3.0;
 constexpr double ALPHAS[4] = {0.05, 0.02, 0.02, 0.05};
 constexpr double NEFF_THRESH = (double)mcl::N / 2.0;
+
+// Heading slack around the IMU. The IMU is the heading authority; the
+// filters only solve x,y. 1 degree of jitter keeps a little diversity.
+constexpr double HEADING_JITTER_RAD = 1.0 * PI / 180.0;
+
+// Spec-correct distance validity (used for the EKF path, which gates here;
+// the MCL update() applies the same rule internally).
+bool dist_ok(int raw_mm, int confidence) {
+    if (raw_mm < DIST_MIN_MM || raw_mm > DIST_MAX_MM) return false;
+    if (raw_mm <= CONF_DIST_MM)                       return true;
+    return confidence >= CONF_GATE;
+}
 
 // EKF process noise per tick.
 constexpr double Q_DIAG[3][3] = {{0.5, 0.0, 0.0}, {0.0, 0.3, 0.0}, {0.0, 0.0, 0.005}};
@@ -66,8 +78,22 @@ void loop(void*) {
         lemlib::Pose cur = chassis.getPose();
         const double dx = cur.x - prev.x;
         const double dy = cur.y - prev.y;
-        const double dth = (cur.theta - prev.theta) * PI / 180.0;
+        double dth_deg = cur.theta - prev.theta;
+        while (dth_deg >  180.0) dth_deg -= 360.0;
+        while (dth_deg < -180.0) dth_deg += 360.0;
+        const double dth = dth_deg * PI / 180.0;
         prev = cur;
+
+        // Read every sensor ONCE per tick (get() and get_confidence() are
+        // separate I2C round-trips; calling them twice can return mismatched
+        // frames). raw is mm; confidence is 0..63.
+        const int f_mm = fdist_sens.get(),  f_cf = fdist_sens.get_confidence();
+        const int b_mm = bdist_sens.get(),  b_cf = bdist_sens.get_confidence();
+        const int l_mm = ldist_sens.get(),  l_cf = ldist_sens.get_confidence();
+        const int r_mm = rdist_sens.get(),  r_cf = rdist_sens.get_confidence();
+
+        // The IMU is the heading authority; the filters only solve x,y.
+        const double imu_rad = cur.theta * PI / 180.0;
 
         if (method == loc::Method::MCL) {
             // MCL wants body-frame deltas.
@@ -76,14 +102,17 @@ void loop(void*) {
             const double dl = dx * std::cos(th) - dy * std::sin(th);
             mcl::predict(filter, df, dl, dth, ALPHAS);
 
-            if (fdist_sens.get_confidence() > CONF_GATE)
-                mcl::update(filter, 0.0,       FRONT_OFFSET, fdist_sens.get(), fdist_sens.get_confidence(), R_SENSOR);
-            if (bdist_sens.get_confidence() > CONF_GATE)
-                mcl::update(filter, PI,        BACK_OFFSET,  bdist_sens.get(), bdist_sens.get_confidence(), R_SENSOR);
-            if (ldist_sens.get_confidence() > CONF_GATE)
-                mcl::update(filter, -PI / 2.0, LEFT_OFFSET,  ldist_sens.get(), ldist_sens.get_confidence(), R_SENSOR);
-            if (rdist_sens.get_confidence() > CONF_GATE)
-                mcl::update(filter, +PI / 2.0, RIGHT_OFFSET, rdist_sens.get(), rdist_sens.get_confidence(), R_SENSOR);
+            // Pin particle orientation to the IMU before the wall updates so
+            // ray/wall association uses the trusted heading, not drift.
+            mcl::set_heading(filter, imu_rad, HEADING_JITTER_RAD);
+
+            // update() applies the spec-correct gate, the obstacle reject,
+            // and the true 2-D sensor geometry internally (field_model.hpp),
+            // so we just hand it the mount + reading.
+            mcl::update(filter, field::FRONT, f_mm, f_cf, R_SENSOR);
+            mcl::update(filter, field::BACK,  b_mm, b_cf, R_SENSOR);
+            mcl::update(filter, field::LEFT,  l_mm, l_cf, R_SENSOR);
+            mcl::update(filter, field::RIGHT, r_mm, r_cf, R_SENSOR);
 
             mcl::summarize(filter);
             if (filter.n_eff < NEFF_THRESH) { mcl::resample(filter); mcl::summarize(filter); }
@@ -99,14 +128,12 @@ void loop(void*) {
         } else {
             // EKF wants WORLD-frame deltas.
             oekf::predict(ekf, dx, dy, dth, Q_DIAG);
-            if (fdist_sens.get_confidence() > CONF_GATE)
-                oekf::update(ekf, {ekf.theta,            FRONT_OFFSET, (double)fdist_sens.get(), R_SENSOR});
-            if (bdist_sens.get_confidence() > CONF_GATE)
-                oekf::update(ekf, {ekf.theta + PI,       BACK_OFFSET,  (double)bdist_sens.get(), R_SENSOR});
-            if (ldist_sens.get_confidence() > CONF_GATE)
-                oekf::update(ekf, {ekf.theta - PI / 2.0, LEFT_OFFSET,  (double)ldist_sens.get(), R_SENSOR});
-            if (rdist_sens.get_confidence() > CONF_GATE)
-                oekf::update(ekf, {ekf.theta + PI / 2.0, RIGHT_OFFSET, (double)rdist_sens.get(), R_SENSOR});
+            // Trust the IMU for heading; the walls only refine x,y.
+            ekf.theta = imu_rad;
+            if (dist_ok(f_mm, f_cf)) oekf::update(ekf, {field::FRONT, (double)f_mm, R_SENSOR});
+            if (dist_ok(b_mm, b_cf)) oekf::update(ekf, {field::BACK,  (double)b_mm, R_SENSOR});
+            if (dist_ok(l_mm, l_cf)) oekf::update(ekf, {field::LEFT,  (double)l_mm, R_SENSOR});
+            if (dist_ok(r_mm, r_cf)) oekf::update(ekf, {field::RIGHT, (double)r_mm, R_SENSOR});
 
             latest.x = ekf.x;
             latest.y = ekf.y;
@@ -130,7 +157,7 @@ void loop(void*) {
 namespace loc {
 
 void start(double fx, double fy, double fdeg, Method m, bool correct) {
-    if (running) return;
+    if (running) stop();
     method = m;
     correctOn = correct;
     chassis.setPose(fx, fy, fdeg);

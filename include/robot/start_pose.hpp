@@ -17,6 +17,8 @@
 //            this — e.g. 0 = facing +Y / blue side, 90 = facing +X).
 //
 // Returns the inferred field-absolute pose (x, y, theta_deg). x and y
-// in inches. If a sensor pair has no valid reading on an axis, that
-// axis falls back to field-center (72.0).
+// in inches, clamped into [0, FIELD_IN]. When BOTH walls on an axis are
+// in range it averages them; otherwise it uses whichever wall is valid.
+// If a sensor pair has no valid reading on an axis, that axis falls back
+// to field-center (FIELD_IN / 2).
 lemlib::Pose determine_start_pose(double theta_deg = 0.0);

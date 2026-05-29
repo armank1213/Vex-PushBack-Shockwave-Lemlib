@@ -8,6 +8,7 @@
 #include "robot/distance_reset.hpp" // IWYU pragma: keep
 #include "robot/oekf_rerun.hpp" // IWYU pragma: keep
 #include "robot/localization.hpp" // IWYU pragma: keep
+#include "robot/start_pose.hpp" // IWYU pragma: keep
 #include "lemlib/asset.hpp" // IWYU pragma: keep
 
 // EKF replay lives in src/oekf_rerun.cpp. See robot/oekf_rerun.hpp.
@@ -110,9 +111,19 @@ void park_auton() {
 //  3. Hand-push the robot: est should track the new position.
 //  4. Swap M to loc::Method::EKF and repeat — compare EKF vs MCL.
 void localization_test() {
-    const double TX = 56.5, TY = 24, TDEG = 0;     // measured start pose
-    const loc::Method M = loc::Method::MCL;      // swap to ::EKF to test EKF
-    loc::start(TX, TY, TDEG, M, /*correct=*/false);
+    // TDEG = the cardinal heading you physically placed the robot at.
+    // Odom no longer starts at a hard-coded number: we read the perimeter
+    // distance sensors to infer the field-absolute start pose, then seed
+    // BOTH the chassis odom AND the filter there (loc::start calls
+    // chassis.setPose internally). So "od" and "est" begin at the same
+    // sensor-measured coordinate and you can watch them track each other.
+    const double TDEG = 0;
+    const loc::Method M = loc::Method::MCL;       // swap to ::EKF to test EKF
+
+    lemlib::Pose sp = determine_start_pose(TDEG); // field pose from the walls
+    controller.print(0, 0, "start %4d %4d", (int)sp.x, (int)sp.y);
+    pros::delay(600);
+    loc::start(sp.x, sp.y, sp.theta, M, /*correct=*/false);
 
     while (true) {
         lemlib::Pose p = chassis.getPose();

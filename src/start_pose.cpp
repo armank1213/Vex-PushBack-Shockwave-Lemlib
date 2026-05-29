@@ -1,31 +1,42 @@
 #include "robot/start_pose.hpp"
 #include "robot/hardware.hpp"
+#include "robot/field_model.hpp"
 #include "lemlib/pose.hpp"
 
 #include <cmath>
 
 namespace {
 
-constexpr double FIELD_IN = 144.0;
-constexpr double MM_PER_IN = 25.4;
+using field::FIELD_IN;
+using field::MM_PER_IN;
 
-// Robot center -> sensor face along sensor pointing direction.
-constexpr double FRONT_OFFSET = 7.75;
-constexpr double BACK_OFFSET  = 9.00;
-constexpr double LEFT_OFFSET  = 7.50;
-constexpr double RIGHT_OFFSET = 7.50;
+// Center-to-wall scalar offsets, derived from the measured 2-D sensor
+// mounts in field_model.hpp. When the robot is square to a flat wall (the
+// assumption of this cardinal-snap solver) only the along-axis component
+// matters, which is exactly along_offset(mount).
+const double FRONT_OFFSET = field::along_offset(field::FRONT);
+const double BACK_OFFSET  = field::along_offset(field::BACK);
+const double LEFT_OFFSET  = field::along_offset(field::LEFT);
+const double RIGHT_OFFSET = field::along_offset(field::RIGHT);
 
-// VEX Distance confidence is 0..63. Same gate as the EKF replay uses.
-constexpr int CONF_GATE = 40;
+// VEX V5 Distance sensor spec (kb.vex.com / SIGBots wiki):
+//   range 20-2000 mm; get() returns 9999 when NO object is detected.
+//   confidence 0..63, but ONLY meaningful when distance > 200 mm.
+//   accuracy: +/-15 mm below 200 mm, ~5% above 200 mm.
+constexpr int    CONF_GATE    = 40;
+constexpr double DIST_MIN_MM  = 20.0;    // sensor minimum
+constexpr double DIST_MAX_MM  = 2000.0;  // sensor maximum (9999 => no object)
+constexpr double CONF_DIST_MM = 200.0;   // confidence only valid above this
 
-// Distance reading validity window (mm).
-constexpr double DIST_MIN_MM = 10.0;
-constexpr double DIST_MAX_MM = 1900.0;
-
+// A reading is usable if it is in physical range AND either close enough
+// that the spec guarantees +/-15 mm regardless of the (unavailable)
+// confidence, or far enough that the confidence value is meaningful and
+// passes the gate. The old code required confidence > gate at ALL ranges,
+// which silently discarded any wall closer than ~8" (200 mm).
 bool reading_valid(int raw_mm, int confidence) {
-    return confidence > CONF_GATE
-        && raw_mm > DIST_MIN_MM
-        && raw_mm < DIST_MAX_MM;
+    if (raw_mm < DIST_MIN_MM || raw_mm > DIST_MAX_MM) return false;
+    if (raw_mm <= CONF_DIST_MM)                       return true;
+    return confidence >= CONF_GATE;
 }
 
 // Convert raw_mm to robot-center -> wall distance (inches).
@@ -107,8 +118,21 @@ lemlib::Pose determine_start_pose(double theta_deg) {
         }
     }
 
+    // Average the per-axis estimates. With the gate fixed, BOTH the near
+    // wall and (when in range) the far wall on each axis contribute, so a
+    // robot near a corner gets a 2-sensor average per axis. If an axis has
+    // NO valid wall (robot too far from both walls on that axis), we cannot
+    // know it from sensors — fall back to field center rather than inventing
+    // a number. Caller should place the robot near a corner so this branch
+    // does not trigger.
     double x = (x_count > 0) ? (x_sum / x_count) : (FIELD_IN / 2.0);
     double y = (y_count > 0) ? (y_sum / y_count) : (FIELD_IN / 2.0);
+
+    // Clamp into the field so a single bad frame can't return a wild pose.
+    if (x < 0.0)        x = 0.0;
+    if (x > FIELD_IN)   x = FIELD_IN;
+    if (y < 0.0)        y = 0.0;
+    if (y > FIELD_IN)   y = FIELD_IN;
 
     return lemlib::Pose(x, y, theta_deg);
 }

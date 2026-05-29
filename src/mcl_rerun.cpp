@@ -30,16 +30,20 @@ constexpr double PI       = 3.14159265358979323846;
 constexpr double MM_PER_IN = 25.4;
 constexpr const char* DATA_PATH = "/usd/dtData.txt";
 
-// Sensor offsets (robot center -> sensor face along sensor pointing dir).
-constexpr double FRONT_OFFSET = 7.75;
-constexpr double BACK_OFFSET  = 9.00;
-constexpr double LEFT_OFFSET  = 7.50;
-constexpr double RIGHT_OFFSET = 7.50;
+// Sensor mount geometry now lives in robot/field_model.hpp (field::FRONT,
+// BACK, LEFT, RIGHT) so it is measured/tuned in ONE place.
 
-// Distance reading validity window.
-constexpr double DIST_MIN_MM = 10.0;
-constexpr double DIST_MAX_MM = 1900.0;
-constexpr int    CONF_GATE   = 40;     // VEX 0..63
+// Distance reading validity window. VEX V5 Distance: 20-2000 mm range,
+// get()==9999 means no object, confidence only valid above 200 mm.
+constexpr double DIST_MIN_MM  = 20.0;
+constexpr double DIST_MAX_MM  = 2000.0;
+constexpr double CONF_DIST_MM = 200.0; // confidence meaningful only above this
+constexpr int    CONF_GATE    = 40;    // VEX 0..63
+
+// Obstacle reject: if a beam reads more than this far from the mapped wall
+// distance (at the current best estimate), it hit something not in the map
+// (long goal, game piece, another robot) — drop it instead of trusting it.
+constexpr double OBSTACLE_REJECT_IN = 12.0;
 
 // Wall-normal gate: skip sensor when its pointing dir is more than this
 // many radians off from the perpendicular to the wall it would hit.
@@ -105,45 +109,8 @@ double clampF(double v) {
 }
 
 
-// ─── Sensor model helpers ──────────────────────────────────────
-
-// Distance from (rx,ry) along world heading `angle` to the nearest wall
-// of [0, FIELD]^2. Also returns which wall (0=+X, 1=-X, 2=+Y, 3=-Y) via
-// out param so we can apply wall-normal gating. Inches.
-double raycastField(double rx, double ry, double angle, int* out_wall = nullptr) {
-    const double cx = std::sin(angle);
-    const double cy = std::cos(angle);
-    double t = 1e9;
-    int wall = -1;
-    if (cx >  1e-6) { double tt = (oekf::FIELD_IN - rx) / cx;  if (tt < t) { t = tt; wall = 0; } }
-    if (cx < -1e-6) { double tt = (rx)                  / (-cx); if (tt < t) { t = tt; wall = 1; } }
-    if (cy >  1e-6) { double tt = (oekf::FIELD_IN - ry) / cy;  if (tt < t) { t = tt; wall = 2; } }
-    if (cy < -1e-6) { double tt = (ry)                  / (-cy); if (tt < t) { t = tt; wall = 3; } }
-    if (out_wall) *out_wall = wall;
-    return t;
-}
-
-// Grazing angle: how far the sensor ray is from hitting this wall head-on.
-// 0 = perpendicular (best), large = glancing. `ref` is the ray direction
-// that strikes each wall head-on, in our (sin a, cos a) heading convention:
-//   wall 0 (+X wall, x=144): head-on ray points +X  -> a =  PI/2
-//   wall 1 (-X wall, x=0):   head-on ray points -X  -> a = -PI/2
-//   wall 2 (+Y wall, y=144): head-on ray points +Y  -> a =  0
-//   wall 3 (-Y wall, y=0):   head-on ray points -Y  -> a =  PI
-double sensor_to_wall_normal_angle(double sensor_angle, int wall) {
-    double normal_angle = 0.0;
-    switch (wall) {
-        case 0: normal_angle =  PI / 2.0; break;
-        case 1: normal_angle = -PI / 2.0; break;
-        case 2: normal_angle =  0.0;      break;
-        case 3: normal_angle =  PI;       break;
-        default: return 1e9;
-    }
-    double diff = sensor_angle - normal_angle;
-    while (diff >  PI) diff -= 2.0 * PI;
-    while (diff < -PI) diff += 2.0 * PI;
-    return std::abs(diff);
-}
+// Sensor-model geometry helpers (raycast, grazing-angle, sensor world
+// pose) now live in robot/field_model.hpp as field:: functions.
 
 
 // ─── Replay helpers ────────────────────────────────────────────
@@ -233,6 +200,21 @@ void init(Filter& f,
 }
 
 
+// ─── set_heading (pin orientation to a trusted gyro) ───────────
+//
+// On a known rectangular field the VEX IMU tracks heading far better than
+// the distance sensors can ever recover it (the walls barely constrain
+// orientation). Standard practice for MCL with a good gyro is to NOT let
+// the particle headings free-run: pin every particle to the measured
+// heading each tick, with a small jitter for slack. This collapses the
+// filter to 2-D (x, y) estimation and removes the wrong-wall-association
+// failure mode that makes the estimate explode.
+void set_heading(Filter& f, double theta_rad, double sigma_rad) {
+    for (int i = 0; i < N; ++i)
+        f.particles[i].theta = theta_rad + sampleN(sigma_rad);
+}
+
+
 // ─── predict (body-frame motion model) ─────────────────────────
 //
 // Thrun-style sample_motion_model_odometry, but parameterized on the
@@ -284,16 +266,32 @@ void predict(Filter& f,
 
 // ─── update (one wall reading) ─────────────────────────────────
 bool update(Filter& f,
-            double sensor_world_angle_at_theta0,
-            double sensor_offset_in,
+            const field::SensorMount& mount,
             int raw_mm,
             int confidence,
             double R_noise) {
-    if (confidence <= CONF_GATE)                             return false;
+    // Validity gate, honoring the sensor spec: reject out-of-range / 9999,
+    // accept close readings unconditionally (confidence is unavailable but
+    // distance is good to +/-15 mm), gate far readings on confidence.
     if (raw_mm < DIST_MIN_MM || raw_mm > DIST_MAX_MM)        return false;
+    if (raw_mm > CONF_DIST_MM && confidence < CONF_GATE)     return false;
 
-    const double measured = (raw_mm / MM_PER_IN) + sensor_offset_in;
+    // raw is the distance from the sensor FACE to whatever it hit. We now
+    // raycast from the sensor's true world position, so NO center offset is
+    // added — the geometry is handled by the mount (field_model.hpp).
+    const double measured = raw_mm / MM_PER_IN;
     const double inv_2R   = 1.0 / (2.0 * R_noise);
+
+    // Obstacle reject: compare against the wall distance expected at the
+    // current best estimate. If the beam disagrees a lot, it hit something
+    // not in the map (long goal, game piece, another robot) or the wall at
+    // a useless angle — drop the whole reading rather than corrupt the cloud.
+    {
+        double sx, sy, sang;
+        field::sensor_world(f.x_mean, f.y_mean, f.theta_mean, mount, sx, sy, sang);
+        const double exp_mean = field::raycast(sx, sy, sang);
+        if (std::abs(measured - exp_mean) > OBSTACLE_REJECT_IN) return false;
+    }
 
     // Log-sum-exp trick to keep weights stable for large innovations.
     // We accumulate log-weights, then normalize by subtracting max
@@ -302,21 +300,18 @@ bool update(Filter& f,
     double max_logw = -1e300;
 
     for (int i = 0; i < N; ++i) {
-        const double sensor_world_angle = f.particles[i].theta + sensor_world_angle_at_theta0;
+        double sx, sy, sang;
+        field::sensor_world(f.particles[i].x, f.particles[i].y,
+                            f.particles[i].theta, mount, sx, sy, sang);
 
         int wall = -1;
-        const double expected = raycastField(f.particles[i].x,
-                                             f.particles[i].y,
-                                             sensor_world_angle,
-                                             &wall);
+        const double expected = field::raycast(sx, sy, sang, &wall);
 
         // Wall-normal gate: if the sensor would hit the wall at a grazing
         // angle, the reading is unreliable for this particle. Skip the
         // likelihood update (treat as uninformative).
-        const double offset_from_normal = sensor_to_wall_normal_angle(sensor_world_angle, wall);
-
         double ll;
-        if (offset_from_normal > WALL_NORMAL_GATE_RAD) {
+        if (field::grazing_angle(sang, wall) > WALL_NORMAL_GATE_RAD) {
             ll = 0.0;  // uninformative
         } else {
             const double innov = measured - expected;
@@ -334,14 +329,14 @@ bool update(Filter& f,
         total += f.particles[i].w;
     }
     if (total < 1e-12) {
-        // Total collapse: no particle matches the reading — the cloud is
-        // lost. Re-scatter positions across the whole field (keep headings,
-        // which the IMU tracks well) so the next reading can re-localize.
-        for (int i = 0; i < N; ++i) {
-            f.particles[i].x = sampleU01() * oekf::FIELD_IN;
-            f.particles[i].y = sampleU01() * oekf::FIELD_IN;
-            f.particles[i].w = 1.0 / N;
-        }
+        // Total collapse: no particle matches THIS reading. Almost always a
+        // single noisy/out-of-range sensor frame, not a genuinely lost robot.
+        // Re-scattering across the whole field here is destructive: if only
+        // one axis has a valid wall next tick, the other axis never recovers
+        // and the estimate freezes at a wrong value. Instead, keep particle
+        // positions and just reset weights uniform — i.e. ignore this bad
+        // update and trust the existing belief.
+        for (int i = 0; i < N; ++i) f.particles[i].w = 1.0 / N;
     } else {
         for (int i = 0; i < N; ++i) f.particles[i].w /= total;
     }
@@ -494,7 +489,10 @@ void rerun(double start_x_in, double start_y_in, double start_theta_deg) {
         // Convert world-frame pose delta to body-frame for motion model.
         const double dx_w     = currPose.x - prevPose.x;
         const double dy_w     = currPose.y - prevPose.y;
-        const double dtheta_w = (currPose.theta - prevPose.theta) * PI / 180.0;
+        double dtheta_deg = currPose.theta - prevPose.theta;
+        while (dtheta_deg >  180.0) dtheta_deg -= 360.0;
+        while (dtheta_deg < -180.0) dtheta_deg += 360.0;
+        const double dtheta_w = dtheta_deg * PI / 180.0;
         prevPose = currPose;
 
         const double th = currPose.theta * PI / 180.0;
@@ -507,11 +505,21 @@ void rerun(double start_x_in, double start_y_in, double start_theta_deg) {
 
         predict(filter, d_forward, d_lateral, dtheta_w, DEFAULT_ALPHAS);
 
+        // Pin particle orientation to the heading (IMU-backed odom) before
+        // the wall updates, so ray/wall association uses the trusted heading
+        // instead of drifting particle headings.
+        set_heading(filter, th, 1.0 * PI / 180.0);
+
         // ── MCL update (4 sensors) ──────────────────────────────
-        update(filter, 0.0,        FRONT_OFFSET, fdist_sens.get(), fdist_sens.get_confidence(), R_SENSOR);
-        update(filter, PI,         BACK_OFFSET,  bdist_sens.get(), bdist_sens.get_confidence(), R_SENSOR);
-        update(filter, -PI / 2.0,  LEFT_OFFSET,  ldist_sens.get(), ldist_sens.get_confidence(), R_SENSOR);
-        update(filter, +PI / 2.0,  RIGHT_OFFSET, rdist_sens.get(), rdist_sens.get_confidence(), R_SENSOR);
+        // Read each sensor once; update() gates each reading internally.
+        const int f_mm = fdist_sens.get(), f_cf = fdist_sens.get_confidence();
+        const int b_mm = bdist_sens.get(), b_cf = bdist_sens.get_confidence();
+        const int l_mm = ldist_sens.get(), l_cf = ldist_sens.get_confidence();
+        const int r_mm = rdist_sens.get(), r_cf = rdist_sens.get_confidence();
+        update(filter, field::FRONT, f_mm, f_cf, R_SENSOR);
+        update(filter, field::BACK,  b_mm, b_cf, R_SENSOR);
+        update(filter, field::LEFT,  l_mm, l_cf, R_SENSOR);
+        update(filter, field::RIGHT, r_mm, r_cf, R_SENSOR);
 
         summarize(filter);
 

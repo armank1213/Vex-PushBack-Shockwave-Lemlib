@@ -18,11 +18,7 @@ namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr const char* DATA_PATH = "/usd/dtData.txt";
 
-// Sensor offsets, robot center -> sensor face along sensor pointing dir.
-constexpr double FRONT_OFFSET = 7.75;
-constexpr double BACK_OFFSET  = 9.00;
-constexpr double LEFT_OFFSET  = 7.50;
-constexpr double RIGHT_OFFSET = 7.50;
+// Sensor mount geometry lives in robot/field_model.hpp (field::FRONT, ...).
 
 // Replay tuning.
 constexpr int    WAYPOINT_SKIP      = 8;
@@ -41,10 +37,20 @@ constexpr double TIMEOUT_MULTIPLIER = 1.6;
 // Measured top speed at full power. Tune empirically.
 constexpr double MAX_SPEED_IPS = 48.0;
 
-// Distance sensor validity window. VEX Distance is ~30-2000 mm spec'd,
-// but past ~1900 mm the readings get noisy fast.
-constexpr double DIST_MIN_MM = 10.0;
-constexpr double DIST_MAX_MM = 1900.0;
+// Distance sensor validity window. VEX V5 Distance: 20-2000 mm range,
+// get()==9999 means no object, confidence only valid above 200 mm.
+constexpr double DIST_MIN_MM  = 20.0;
+constexpr double DIST_MAX_MM  = 2000.0;
+constexpr double CONF_DIST_MM = 200.0;
+constexpr int    CONF_GATE    = 40;
+
+// Spec-correct validity: in range, and either close (confidence N/A but
+// +/-15 mm) or far with passing confidence.
+inline bool dist_ok(int raw_mm, int confidence) {
+    if (raw_mm < DIST_MIN_MM || raw_mm > DIST_MAX_MM) return false;
+    if (raw_mm <= CONF_DIST_MM)                       return true;
+    return confidence >= CONF_GATE;
+}
 
 // Innovation gate: reject obvious wild measurements (in inches).
 constexpr double INNOV_GATE_IN = 14.0;
@@ -54,19 +60,13 @@ constexpr double Q_DIAG[3][3] = {{0.5, 0.0, 0.0},
                                  {0.0, 0.3, 0.0},
                                  {0.0, 0.0, 0.005}};
 
-// Distance from (rx,ry) along world heading `angle` to the nearest wall
-// of an axis-aligned [0, FIELD_IN] x [0, FIELD_IN] square. Returns inches.
-//
-// Convention: angle 0 = +Y world (matches LemLib heading), increasing CW.
-double raycastField(double rx, double ry, double angle) {
-    const double cx = std::sin(angle);
-    const double cy = std::cos(angle);
-    double t = 1e9;
-    if (cx >  1e-6) t = std::min(t, (FIELD_IN - rx) / cx);
-    if (cx < -1e-6) t = std::min(t, (rx)            / (-cx));
-    if (cy >  1e-6) t = std::min(t, (FIELD_IN - ry) / cy);
-    if (cy < -1e-6) t = std::min(t, (ry)            / (-cy));
-    return t;
+// Expected sensor-face-to-wall range for a robot pose (x,y,theta) and a
+// sensor mount: place the sensor at its true world position, then raycast.
+// Same geometry the MCL uses (field_model.hpp), so EKF and MCL agree.
+double expected_range(double x, double y, double th, const field::SensorMount& m) {
+    double sx, sy, sang;
+    field::sensor_world(x, y, th, m, sx, sy, sang);
+    return field::raycast(sx, sy, sang);
 }
 
 } // anonymous namespace
@@ -104,17 +104,21 @@ void predict(State& s,
 bool update(State& s, const WallObs& obs) {
     if (obs.raw_mm < DIST_MIN_MM || obs.raw_mm > DIST_MAX_MM) return false;
 
-    const double measured = (obs.raw_mm / 25.4) + obs.sensor_offset_in;
-    const double expected = raycastField(s.x, s.y, obs.sensor_world_angle);
+    // raw is sensor-face-to-wall; expected_range already accounts for the
+    // sensor's mounted position, so no center offset is added here.
+    const double measured = obs.raw_mm / field::MM_PER_IN;
+    const double expected = expected_range(s.x, s.y, s.theta, obs.mount);
     const double innov    = measured - expected;
+    // Innovation gate also rejects beams that hit an obstacle (long goal,
+    // game piece, robot) instead of the mapped wall.
     if (std::abs(innov) > INNOV_GATE_IN) return false;
 
     // Numerical Jacobian H = [∂h/∂x, ∂h/∂y, ∂h/∂θ].
     constexpr double eps = 1e-4;
     double H[3];
-    H[0] = (raycastField(s.x + eps, s.y, obs.sensor_world_angle) - expected) / eps;
-    H[1] = (raycastField(s.x, s.y + eps, obs.sensor_world_angle) - expected) / eps;
-    H[2] = (raycastField(s.x, s.y, obs.sensor_world_angle + eps) - expected) / eps;
+    H[0] = (expected_range(s.x + eps, s.y, s.theta, obs.mount) - expected) / eps;
+    H[1] = (expected_range(s.x, s.y + eps, s.theta, obs.mount) - expected) / eps;
+    H[2] = (expected_range(s.x, s.y, s.theta + eps, obs.mount) - expected) / eps;
 
     // S = H P H^T + R  (scalar since z is 1D).
     double HP[3] = {0.0, 0.0, 0.0};
@@ -276,22 +280,26 @@ void run() {
         lemlib::Pose currPose = chassis.getPose();
         double dx_w     = currPose.x - prevPose.x;
         double dy_w     = currPose.y - prevPose.y;
-        double dtheta_w = (currPose.theta - prevPose.theta) * PI / 180.0;
+        double dtheta_deg_raw = currPose.theta - prevPose.theta;
+        while (dtheta_deg_raw >  180.0) dtheta_deg_raw -= 360.0;
+        while (dtheta_deg_raw < -180.0) dtheta_deg_raw += 360.0;
+        double dtheta_w = dtheta_deg_raw * PI / 180.0;
         prevPose = currPose;
         predict(ekf, dx_w, dy_w, dtheta_w, Q_DIAG);
+        // Trust the IMU-backed odom heading; the walls only refine x,y.
+        ekf.theta = currPose.theta * PI / 180.0;
 
         // ── EKF update from each perimeter sensor ────────────────
-        // VEX Distance get_confidence() returns 0..63. Only fuse readings
-        // where the sensor itself reports it's looking at a real surface.
-        constexpr int CONF_GATE = 40;
-        if (fdist_sens.get_confidence() > CONF_GATE)
-            update(ekf, {ekf.theta,            FRONT_OFFSET, (double)fdist_sens.get(), 3.0});
-        if (bdist_sens.get_confidence() > CONF_GATE)
-            update(ekf, {ekf.theta + PI,       BACK_OFFSET,  (double)bdist_sens.get(), 3.0});
-        if (ldist_sens.get_confidence() > CONF_GATE)
-            update(ekf, {ekf.theta - PI / 2.0, LEFT_OFFSET,  (double)ldist_sens.get(), 3.0});
-        if (rdist_sens.get_confidence() > CONF_GATE)
-            update(ekf, {ekf.theta + PI / 2.0, RIGHT_OFFSET, (double)rdist_sens.get(), 3.0});
+        // Read each sensor once; gate per the spec (close walls allowed
+        // even though confidence is unavailable below 200 mm).
+        const int f_mm = fdist_sens.get(), f_cf = fdist_sens.get_confidence();
+        const int b_mm = bdist_sens.get(), b_cf = bdist_sens.get_confidence();
+        const int l_mm = ldist_sens.get(), l_cf = ldist_sens.get_confidence();
+        const int r_mm = rdist_sens.get(), r_cf = rdist_sens.get_confidence();
+        if (dist_ok(f_mm, f_cf)) update(ekf, {field::FRONT, (double)f_mm, 3.0});
+        if (dist_ok(b_mm, b_cf)) update(ekf, {field::BACK,  (double)b_mm, 3.0});
+        if (dist_ok(l_mm, l_cf)) update(ekf, {field::LEFT,  (double)l_mm, 3.0});
+        if (dist_ok(r_mm, r_cf)) update(ekf, {field::RIGHT, (double)r_mm, 3.0});
 
         // Only push EKF back into LemLib pose when we're confident.
         if (ekf.P[0][0] < 0.5 && ekf.P[1][1] < 0.5) {

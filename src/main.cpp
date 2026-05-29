@@ -25,7 +25,7 @@ void initialize() {
     chassis.calibrate();
 
     vertical_rotation.reset();
-    horizontal_rotation.reset();
+    horizontal_rotation.reset();   
 
     while (imu.is_calibrating()) {
         pros::delay(10);

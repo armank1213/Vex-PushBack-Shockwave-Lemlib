@@ -1,11 +1,13 @@
 #pragma once
 
+#include "robot/field_model.hpp"
 #include <fstream>
 
 namespace oekf {
 
-// VEX Pushback field is 144" x 144".
-inline constexpr double FIELD_IN = 144.0;
+// Field interior size. Canonical value lives in field_model.hpp; aliased
+// here so existing oekf::FIELD_IN references keep working.
+inline constexpr double FIELD_IN = field::FIELD_IN;   // 140.43
 
 // 3-state EKF: [x_in, y_in, theta_rad]^T.
 // P is the 3x3 covariance. Diagonal seed = initial uncertainty.
@@ -18,11 +20,12 @@ struct State {
                       { 0.0,  0.0, 0.3}};
 };
 
-// One distance reading worth fusing.
+// One distance reading worth fusing. The sensor's body-frame mount (face
+// position + pointing direction) is taken from field_model.hpp; the ray is
+// cast from the sensor's true world position using the EKF's current pose.
 struct WallObs {
-    double sensor_world_angle;   // rad, world frame, direction sensor faces
-    double sensor_offset_in;     // in, robot center -> sensor face along that direction
-    double raw_mm;               // VEX Distance reading
+    field::SensorMount mount;    // measured sensor geometry
+    double raw_mm;               // VEX Distance reading (sensor face -> wall, mm)
     double R_noise;              // measurement variance (in^2)
 };
 

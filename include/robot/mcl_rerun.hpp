@@ -1,5 +1,7 @@
 #pragma once
 
+#include "robot/field_model.hpp"
+
 // Monte Carlo Localization for OEKF-Rerun replay path.
 //
 // Frame convention: field-absolute inches, (0,0) = red-side bottom-left
@@ -46,17 +48,24 @@ void predict(Filter& f,
              double d_forward, double d_lateral, double dtheta_rad,
              const double alphas[4]);
 
+// Pin every particle's heading to a trusted measured heading (the IMU),
+// with sigma_rad of jitter. Call once per tick so the distance-sensor
+// wall association uses the gyro heading instead of drifting particle
+// headings. theta_rad uses the LemLib convention (0 = +Y, CW positive).
+void set_heading(Filter& f, double theta_rad, double sigma_rad);
+
 // Fuse one wall-distance reading.
-//   sensor_world_angle_at_theta0: sensor pointing direction expressed
-//     relative to robot heading. front=0, back=PI, left=-PI/2, right=+PI/2.
-//   sensor_offset_in: center -> sensor face along that direction.
-//   raw_mm: VEX Distance raw reading.
+//   mount: the sensor's measured body-frame face position + pointing dir
+//          (field::FRONT / BACK / LEFT / RIGHT). The ray is cast from the
+//          sensor's actual world position, so the reading is interpreted
+//          exactly at any heading.
+//   raw_mm: VEX Distance raw reading (sensor face -> wall, mm).
 //   confidence: VEX get_confidence(), 0..63.
 //   R_noise: measurement variance (in^2).
-// Returns true if reading was fused, false if gated out.
+// Returns true if reading was fused, false if gated out (range, low
+// confidence, grazing wall, or an obstacle hit shorter than the wall).
 bool update(Filter& f,
-            double sensor_world_angle_at_theta0,
-            double sensor_offset_in,
+            const field::SensorMount& mount,
             int raw_mm,
             int confidence,
             double R_noise);
