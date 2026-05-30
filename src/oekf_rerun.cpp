@@ -63,10 +63,11 @@ constexpr double Q_DIAG[3][3] = {{0.5, 0.0, 0.0},
 // Expected sensor-face-to-wall range for a robot pose (x,y,theta) and a
 // sensor mount: place the sensor at its true world position, then raycast.
 // Same geometry the MCL uses (field_model.hpp), so EKF and MCL agree.
-double expected_range(double x, double y, double th, const field::SensorMount& m) {
+double expected_range(double x, double y, double th, const field::SensorMount& m,
+                      bool* hit_obstacle = nullptr) {
     double sx, sy, sang;
     field::sensor_world(x, y, th, m, sx, sy, sang);
-    return field::raycast(sx, sy, sang);
+    return field::raycast_map(sx, sy, sang, hit_obstacle);
 }
 
 } // anonymous namespace
@@ -107,10 +108,14 @@ bool update(State& s, const WallObs& obs) {
     // raw is sensor-face-to-wall; expected_range already accounts for the
     // sensor's mounted position, so no center offset is added here.
     const double measured = obs.raw_mm / field::MM_PER_IN;
-    const double expected = expected_range(s.x, s.y, s.theta, obs.mount);
+    bool hitObs = false;
+    const double expected = expected_range(s.x, s.y, s.theta, obs.mount, &hitObs);
+    // Beam blocked by a mapped goal/matchload: no wall info, skip the update
+    // (also avoids a bad numerical Jacobian across the obstacle edge).
+    if (hitObs) return false;
     const double innov    = measured - expected;
-    // Innovation gate also rejects beams that hit an obstacle (long goal,
-    // game piece, robot) instead of the mapped wall.
+    // Innovation gate rejects beams that hit an UNmapped object (loose block,
+    // robot) instead of the mapped wall.
     if (std::abs(innov) > INNOV_GATE_IN) return false;
 
     // Numerical Jacobian H = [∂h/∂x, ∂h/∂y, ∂h/∂θ].

@@ -58,75 +58,92 @@ lemlib::Pose determine_start_pose(double theta_deg) {
     // quadrant 2: front=-Y, back=+Y, left=+X, right=-X
     // quadrant 3: front=-X, back=+X, left=-Y, right=+Y
 
-    int f_mm   = fdist_sens.get();
-    int b_mm   = bdist_sens.get();
-    int l_mm   = ldist_sens.get();
-    int r_mm   = rdist_sens.get();
-    int f_conf = fdist_sens.get_confidence();
-    int b_conf = bdist_sens.get_confidence();
-    int l_conf = ldist_sens.get_confidence();
-    int r_conf = rdist_sens.get_confidence();
+    // Read each sensor once (mm + confidence are separate I2C round-trips).
+    // Index order: 0=FRONT, 1=BACK, 2=LEFT, 3=RIGHT.
+    const field::SensorMount* mounts[4] = { &field::FRONT, &field::BACK,
+                                            &field::LEFT,  &field::RIGHT };
+    const double offsets[4] = { FRONT_OFFSET, BACK_OFFSET, LEFT_OFFSET, RIGHT_OFFSET };
+    const int    mm[4]   = { fdist_sens.get(), bdist_sens.get(),
+                             ldist_sens.get(), rdist_sens.get() };
+    const int    conf[4] = { fdist_sens.get_confidence(), bdist_sens.get_confidence(),
+                             ldist_sens.get_confidence(), rdist_sens.get_confidence() };
 
-    // For each sensor that's valid, compute the field-coord estimate
-    // it implies along its pointing axis. Then average within-axis.
-    double x_sum = 0, x_count = 0;
-    double y_sum = 0, y_count = 0;
+    // Per-sensor implied field coordinate under the cardinal-snap assumption.
+    // A sensor pointing at the "+Y wall" reads (FIELD - y); at the "-Y wall"
+    // reads y; same pattern on X. Which world axis a sensor measures depends
+    // on the quadrant.
+    bool   valid[4] = { false, false, false, false };
+    char   axis[4]  = { 'x', 'x', 'x', 'x' };
+    double coord[4] = { 0.0, 0.0, 0.0, 0.0 };
 
-    auto fuse_x = [&](double est_x) { x_sum += est_x; x_count += 1; };
-    auto fuse_y = [&](double est_y) { y_sum += est_y; y_count += 1; };
-
-    // Helper: a sensor pointing toward "+Y wall" reads (FIELD - y).
-    //   y_estimate = FIELD - center_distance
-    // A sensor pointing toward "-Y wall" reads y.
-    //   y_estimate = center_distance
-    // Same pattern on X axis.
-
-    if (reading_valid(f_mm, f_conf)) {
-        double d = to_center_distance_in(f_mm, FRONT_OFFSET);
-        switch (quadrant) {
-            case 0: fuse_y(FIELD_IN - d); break;
-            case 1: fuse_x(FIELD_IN - d); break;
-            case 2: fuse_y(d);            break;
-            case 3: fuse_x(d);            break;
-        }
-    }
-    if (reading_valid(b_mm, b_conf)) {
-        double d = to_center_distance_in(b_mm, BACK_OFFSET);
-        switch (quadrant) {
-            case 0: fuse_y(d);            break;
-            case 1: fuse_x(d);            break;
-            case 2: fuse_y(FIELD_IN - d); break;
-            case 3: fuse_x(FIELD_IN - d); break;
-        }
-    }
-    if (reading_valid(l_mm, l_conf)) {
-        double d = to_center_distance_in(l_mm, LEFT_OFFSET);
-        switch (quadrant) {
-            case 0: fuse_x(d);            break;
-            case 1: fuse_y(FIELD_IN - d); break;
-            case 2: fuse_x(FIELD_IN - d); break;
-            case 3: fuse_y(d);            break;
-        }
-    }
-    if (reading_valid(r_mm, r_conf)) {
-        double d = to_center_distance_in(r_mm, RIGHT_OFFSET);
-        switch (quadrant) {
-            case 0: fuse_x(FIELD_IN - d); break;
-            case 1: fuse_y(d);            break;
-            case 2: fuse_x(d);            break;
-            case 3: fuse_y(FIELD_IN - d); break;
+    for (int i = 0; i < 4; ++i) {
+        if (!reading_valid(mm[i], conf[i])) continue;
+        const double d = to_center_distance_in(mm[i], offsets[i]);
+        valid[i] = true;
+        switch (i) {
+            case 0: // FRONT
+                switch (quadrant) {
+                    case 0: axis[i] = 'y'; coord[i] = FIELD_IN - d; break;
+                    case 1: axis[i] = 'x'; coord[i] = FIELD_IN - d; break;
+                    case 2: axis[i] = 'y'; coord[i] = d;            break;
+                    case 3: axis[i] = 'x'; coord[i] = d;            break;
+                } break;
+            case 1: // BACK
+                switch (quadrant) {
+                    case 0: axis[i] = 'y'; coord[i] = d;            break;
+                    case 1: axis[i] = 'x'; coord[i] = d;            break;
+                    case 2: axis[i] = 'y'; coord[i] = FIELD_IN - d; break;
+                    case 3: axis[i] = 'x'; coord[i] = FIELD_IN - d; break;
+                } break;
+            case 2: // LEFT
+                switch (quadrant) {
+                    case 0: axis[i] = 'x'; coord[i] = d;            break;
+                    case 1: axis[i] = 'y'; coord[i] = FIELD_IN - d; break;
+                    case 2: axis[i] = 'x'; coord[i] = FIELD_IN - d; break;
+                    case 3: axis[i] = 'y'; coord[i] = d;            break;
+                } break;
+            case 3: // RIGHT
+                switch (quadrant) {
+                    case 0: axis[i] = 'x'; coord[i] = FIELD_IN - d; break;
+                    case 1: axis[i] = 'y'; coord[i] = d;            break;
+                    case 2: axis[i] = 'x'; coord[i] = d;            break;
+                    case 3: axis[i] = 'y'; coord[i] = FIELD_IN - d; break;
+                } break;
         }
     }
 
-    // Average the per-axis estimates. With the gate fixed, BOTH the near
-    // wall and (when in range) the far wall on each axis contribute, so a
-    // robot near a corner gets a 2-sensor average per axis. If an axis has
-    // NO valid wall (robot too far from both walls on that axis), we cannot
-    // know it from sensors — fall back to field center rather than inventing
-    // a number. Caller should place the robot near a corner so this branch
-    // does not trigger.
-    double x = (x_count > 0) ? (x_sum / x_count) : (FIELD_IN / 2.0);
-    double y = (y_count > 0) ? (y_sum / y_count) : (FIELD_IN / 2.0);
+    // Average the still-valid per-axis estimates. If an axis has NO valid
+    // wall, fall back to field center rather than inventing a number (the
+    // caller should place the robot near a corner so this never triggers).
+    auto solve = [&](char want) {
+        double sum = 0.0; int n = 0;
+        for (int i = 0; i < 4; ++i)
+            if (valid[i] && axis[i] == want) { sum += coord[i]; ++n; }
+        return (n > 0) ? (sum / n) : (FIELD_IN / 2.0);
+    };
+
+    // Pass 1: provisional pose from every valid reading.
+    double x = solve('x');
+    double y = solve('y');
+
+    // Pass 2: from that provisional pose, cast each sensor's ray against the
+    // walls + static obstacle map. If a beam actually hits a mapped obstacle
+    // (long-goal leg, center goal, matchload) it is NOT a wall distance, so
+    // drop it before the final solve. Near a corner the provisional pose is
+    // accurate enough to tell which beams are looking at a goal.
+    const double th = theta_deg * field::PI / 180.0;
+    for (int i = 0; i < 4; ++i) {
+        if (!valid[i]) continue;
+        double sx, sy, sang;
+        field::sensor_world(x, y, th, *mounts[i], sx, sy, sang);
+        bool hitObs = false;
+        field::raycast_map(sx, sy, sang, &hitObs);
+        if (hitObs) valid[i] = false;
+    }
+
+    // Final pose from the surviving wall readings.
+    x = solve('x');
+    y = solve('y');
 
     // Clamp into the field so a single bad frame can't return a wild pose.
     if (x < 0.0)        x = 0.0;

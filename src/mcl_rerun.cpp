@@ -289,7 +289,13 @@ bool update(Filter& f,
     {
         double sx, sy, sang;
         field::sensor_world(f.x_mean, f.y_mean, f.theta_mean, mount, sx, sy, sang);
-        const double exp_mean = field::raycast(sx, sy, sang);
+        bool hitObsMean = false;
+        const double exp_mean = field::raycast_map(sx, sy, sang, &hitObsMean);
+        // Consensus says this beam is looking at a mapped goal/matchload, not
+        // a wall — drop it (no wall info to localize from).
+        if (hitObsMean) return false;
+        // Otherwise the consensus expects a wall; a large disagreement means
+        // an UNmapped object (loose block / robot) — drop it too.
         if (std::abs(measured - exp_mean) > OBSTACLE_REJECT_IN) return false;
     }
 
@@ -305,13 +311,17 @@ bool update(Filter& f,
                             f.particles[i].theta, mount, sx, sy, sang);
 
         int wall = -1;
-        const double expected = field::raycast(sx, sy, sang, &wall);
+        bool hitObs = false;
+        const double expected = field::raycast_map(sx, sy, sang, &hitObs, &wall);
 
-        // Wall-normal gate: if the sensor would hit the wall at a grazing
-        // angle, the reading is unreliable for this particle. Skip the
-        // likelihood update (treat as uninformative).
+        // This particle's beam is blocked by a mapped goal/matchload: it
+        // carries no wall information for this hypothesis, so don't let it
+        // weigh in (uninformative), rather than penalizing the particle.
         double ll;
-        if (field::grazing_angle(sang, wall) > WALL_NORMAL_GATE_RAD) {
+        if (hitObs) {
+            ll = 0.0;  // uninformative
+        } else if (field::grazing_angle(sang, wall) > WALL_NORMAL_GATE_RAD) {
+            // Wall-normal gate: a grazing wall hit is unreliable — skip it.
             ll = 0.0;  // uninformative
         } else {
             const double innov = measured - expected;

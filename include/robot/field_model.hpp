@@ -110,4 +110,123 @@ inline double grazing_angle(double sensor_angle, int wall) {
     return std::abs(d);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// STATIC OBSTACLE MAP (field-absolute inches).
+//
+// The 4 perimeter sensors sit at 4–9.25" height. At that height the goals
+// are NOT solid columns: a beam hits the long-goal LEGS, the center-goal
+// support, or a matchload cylinder, and otherwise passes UNDER the elevated
+// troughs / X-arms (which live at 12"+). So we map only the cross-section
+// that is solid in the sensor band.
+//
+// These shapes are used for REJECTION, not positive localization. With only
+// 4 beams you cannot reliably fix position off a ~2" leg, and the center is
+// a keep-out zone the robot never enters. A beam whose ray hits one of these
+// carries no wall information, so the filter IGNORES it instead of mistaking
+// the goal for a wall (the exact bug this fixes). Position fixes still come
+// from the 4 flat perimeter walls.
+//
+// Geometry: VEX field spec 276-9142 + bench measurements.
+//   long-goal center  23.5" in from each side wall, y-centered at 70.2
+//   long-goal legs    41.35" apart in Y; footprint 3"(X) x 9"(Y) each
+//   center goal       one 22.5"x22.5" keep-out box at field center
+//   matchloads        23.5" in, at y = 23.44 / 116.97; cylinder r = 2.25"
+// NOTE: leg footprint assumes 9" along Y (goal length) x 3" across X.
+// ─────────────────────────────────────────────────────────────────────
+
+struct Rect   { double x_min, y_min, x_max, y_max; };
+struct Circle { double cx, cy, r; };
+
+inline constexpr double LG_LX     = 23.5;            // red long-goal center x
+inline constexpr double LG_RX     = FIELD_IN - 23.5; // blue long-goal center x
+inline constexpr double LG_YC     = 70.2;            // long-goal center y
+inline constexpr double LG_LEG_DY = 41.35 / 2.0;     // leg half-separation (y)
+inline constexpr double LEG_HX    = 3.0 / 2.0;       // leg half-size (x)
+inline constexpr double LEG_HY    = 9.0 / 2.0;       // leg half-size (y)
+inline constexpr double CG_HALF   = 22.5 / 2.0;      // center keep-out half-size
+
+inline constexpr Rect OBSTACLE_RECTS[] = {
+    // red long-goal legs
+    { LG_LX - LEG_HX, LG_YC - LG_LEG_DY - LEG_HY, LG_LX + LEG_HX, LG_YC - LG_LEG_DY + LEG_HY },
+    { LG_LX - LEG_HX, LG_YC + LG_LEG_DY - LEG_HY, LG_LX + LEG_HX, LG_YC + LG_LEG_DY + LEG_HY },
+    // blue long-goal legs
+    { LG_RX - LEG_HX, LG_YC - LG_LEG_DY - LEG_HY, LG_RX + LEG_HX, LG_YC - LG_LEG_DY + LEG_HY },
+    { LG_RX - LEG_HX, LG_YC + LG_LEG_DY - LEG_HY, LG_RX + LEG_HX, LG_YC + LG_LEG_DY + LEG_HY },
+    // center goal keep-out box
+    { LG_YC - CG_HALF, LG_YC - CG_HALF, LG_YC + CG_HALF, LG_YC + CG_HALF },
+};
+
+inline constexpr Circle OBSTACLE_CIRCLES[] = {
+    { LG_LX, 23.44,  2.25 },
+    { LG_LX, 116.97, 2.25 },
+    { LG_RX, 23.44,  2.25 },
+    { LG_RX, 116.97, 2.25 },
+};
+
+// Ray (origin rx,ry; unit dir dx,dy) vs axis-aligned rect. On a t>0 hit,
+// writes the entry distance to t_out and returns true (slab method).
+inline bool ray_rect(double rx, double ry, double dx, double dy,
+                     const Rect& r, double& t_out) {
+    double tmin = -1e30, tmax = 1e30;
+    if (std::abs(dx) < 1e-12) {
+        if (rx < r.x_min || rx > r.x_max) return false;
+    } else {
+        double t1 = (r.x_min - rx) / dx, t2 = (r.x_max - rx) / dx;
+        const double lo = (t1 < t2) ? t1 : t2, hi = (t1 < t2) ? t2 : t1;
+        if (lo > tmin) tmin = lo;
+        if (hi < tmax) tmax = hi;
+    }
+    if (std::abs(dy) < 1e-12) {
+        if (ry < r.y_min || ry > r.y_max) return false;
+    } else {
+        double t1 = (r.y_min - ry) / dy, t2 = (r.y_max - ry) / dy;
+        const double lo = (t1 < t2) ? t1 : t2, hi = (t1 < t2) ? t2 : t1;
+        if (lo > tmin) tmin = lo;
+        if (hi < tmax) tmax = hi;
+    }
+    if (tmax < tmin || tmax < 0.0) return false;
+    t_out = (tmin > 0.0) ? tmin : 0.0;   // 0 if the origin is inside the rect
+    return true;
+}
+
+// Ray vs circle. On a t>0 hit, writes nearest positive distance to t_out.
+inline bool ray_circle(double rx, double ry, double dx, double dy,
+                       const Circle& c, double& t_out) {
+    const double ox = rx - c.cx, oy = ry - c.cy;
+    const double b  = ox * dx + oy * dy;
+    const double cc = ox * ox + oy * oy - c.r * c.r;
+    const double disc = b * b - cc;
+    if (disc < 0.0) return false;
+    const double sq = std::sqrt(disc);
+    double t = -b - sq;
+    if (t <= 1e-6) t = -b + sq;          // origin inside / first surface behind
+    if (t <= 1e-6) return false;
+    t_out = t;
+    return true;
+}
+
+// Raycast against the walls AND the static obstacles. Returns the nearest
+// hit distance. *hit_obstacle is set true when a mapped obstacle is closer
+// than the wall — i.e. the reading is looking at a goal/matchload and should
+// be IGNORED rather than matched to a wall. *out_wall is the wall index (see
+// raycast) when a wall is nearest, or -1 when an obstacle is nearest.
+inline double raycast_map(double rx, double ry, double angle,
+                          bool* hit_obstacle = nullptr, int* out_wall = nullptr) {
+    int wall = -1;
+    double best = raycast(rx, ry, angle, &wall);
+    bool obstacle = false;
+    const double dx = std::sin(angle), dy = std::cos(angle);
+    for (const Rect& r : OBSTACLE_RECTS) {
+        double t;
+        if (ray_rect(rx, ry, dx, dy, r, t) && t > 1e-6 && t < best) { best = t; obstacle = true; }
+    }
+    for (const Circle& c : OBSTACLE_CIRCLES) {
+        double t;
+        if (ray_circle(rx, ry, dx, dy, c, t) && t > 1e-6 && t < best) { best = t; obstacle = true; }
+    }
+    if (hit_obstacle) *hit_obstacle = obstacle;
+    if (out_wall)     *out_wall = obstacle ? -1 : wall;
+    return best;
+}
+
 } // namespace field
