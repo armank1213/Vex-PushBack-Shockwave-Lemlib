@@ -39,21 +39,22 @@ void disabled() {}
 void competition_initialize() {}
 
 void autonomous() {
-    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
-    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
+    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
 
     //oekf_rerun();        // EKF replay of a recorded/drawn route
     //mcl_rerun();         // MCL replay of a recorded/drawn route
     //corrected_auton();   // hand-coded auton + background MCL correction
-    localization_test(); // live readout to test EKF/MCL (correction off)
-    //skills_auton();
+    //localization_test(); // live readout to test EKF/MCL (correction off)
+    skills_auton();
+    //angular_tuning();
 }
 
 void opcontrol() {
     //chassis.setPose(0, 0, 0);
 
-    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
-    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_BRAKE);
+    leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+    rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
     open = false;
     // Don't open the file here — wait for X press

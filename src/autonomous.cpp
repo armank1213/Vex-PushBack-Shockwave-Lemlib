@@ -166,25 +166,52 @@ void corrected_auton() {
 
 void skills_auton() {
     //Initial bot state
-    chassis.setPose(0,0,0);
+    //loc::start(70, 24, 0);
     // To MCL-correct this auton: (1) replace setPose above with
     //   loc::start(<field start x>, <field start y>, <field heading>);
     // (2) rewrite the waypoints below in FIELD-ABSOLUTE coords; and
     // (3) call loc::stop(); before the function returns.
     // As written (relative coords from 0,0,0) the sensor gate rejects
     // everything, so correction would be a no-op.
+    loc::start(70, 24, 0, loc::Method::MCL, false);
     wing.set_value(0);
     limiter.set_value(1);
     matchLoad.set_value(false);
-    //Movement to line up for park
-    chassis.moveToPoint(-2,41,2000,{.forwards=true},false);
-    chassis.turnToHeading(91,500,{});
+    //Movement to line up for park (BLOCKING moves: each finishes before the
+    //next starts, so the robot is actually stopped when we snapPose())
+    chassis.moveToPose(70, 30, 0, 1000, {.forwards=true,.lead=0}, false);
+    chassis.moveToPose(70,30,90, 1000, {.lead=0}, false);
+    loc::snapPose();   // robot fully stopped -> clean reading, x/y only
+    chassis.moveToPose(118,30,90,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    //chassis.moveToPose(120,30,180,100);
+    chassis.moveToPose(118,20,180,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    matchLoad.set_value(true);
+    chassis.moveToPose(118,15,180,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    pros::delay(1000);
+    chassis.moveToPose(118,30,180,2000,{.forwards=false,.lead=0},false);
+    chassis.moveToPose(118,30,90,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(130,30,90,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(130,30,0,2000,{.forwards=false,.lead=0},false);
+    loc::snapPose();
+
+
+
+
+
     //Drive into park
-    chassis.moveToPoint(18,0,2000,{.forwards=true, .maxSpeed=110, .minSpeed=95},false);
+    //chassis.moveToPoint(18,0,2000,{.forwards=true, .maxSpeed=110, .minSpeed=95},false);
     // ^ Takes advantage of unintended response during lack of theta value, Also adjusted the speed value to improve consistency.
     //Pick up blocks that dont clear in park
+    /*
     intakeMotor.move(-200);
     middleMotor.move(-600);
     outtakeMotor.move(-200);
     pros::delay(2000);
+    */
+    loc::stop();
 }

@@ -41,4 +41,19 @@ bool active();
 // Latest filter summary (updated every task tick).
 Estimate estimate();
 
+// Discrete one-shot correction for hand-coded routes. Call this ONLY when
+// the robot is STOPPED at a waypoint (i.e. right after a blocking move
+// returns). It:
+//   1. waits settle_ms so the filter converges on the stationary readings,
+//   2. checks the estimate is confident (var_xy < max_var, and for MCL the
+//      effective sample size is healthy),
+//   3. if so, hard-snaps chassis pose to the estimate AND re-seeds the
+//      filter there — done inside the task so the snap isn't mis-read as
+//      motion. Returns true if a correction was applied, false if the
+//      filter wasn't confident (pose left untouched).
+// Works whether the task was started with correct=true or false; for the
+// discrete-waypoint pattern start it with correct=false so the continuous
+// nudger stays out of your moves.
+bool snapPose(int settle_ms = 200, double max_var = 4.0);
+
 } // namespace loc

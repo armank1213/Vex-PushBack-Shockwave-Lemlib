@@ -52,6 +52,14 @@ loc::Estimate latest;
 pros::Task*  task    = nullptr;
 volatile bool running = false;
 
+// Discrete-correction reseed request. loc::snapPose() fills these and sets
+// the flag; the loop consumes it at the top of the next tick so the snap
+// (chassis.setPose + filter re-seed + prev resync) happens INSIDE the task.
+// Doing it in-task avoids racing the filter and stops the snap from being
+// read as a giant motion delta on the following predict().
+volatile bool reseedReq = false;
+double        reseedX = 0.0, reseedY = 0.0, reseedDeg = 0.0;
+
 double angDiffDeg(double a, double b) {
     return std::fmod(std::fmod(b - a, 360.0) + 540.0, 360.0) - 180.0;
 }
@@ -67,14 +75,40 @@ void applyCorrection(const lemlib::Pose& cur, double ex, double ey, double eth_d
 
     const double nx  = cur.x + (ex - cur.x) * trust;
     const double ny  = cur.y + (ey - cur.y) * trust;
-    const double nth = cur.theta + angDiffDeg(cur.theta, eth_deg) * trust;
-    chassis.setPose(nx, ny, nth);
+    // Heading is left on the IMU (design decision #1): the filter only solves
+    // x,y, so nudging theta toward the filter estimate would inject angle
+    // error and make turnToHeading() land short/long. Keep cur.theta.
+    chassis.setPose(nx, ny, cur.theta);
     latest.corrected = true;
 }
 
 void loop(void*) {
     lemlib::Pose prev = chassis.getPose();
     while (running) {
+        // Discrete snap requested by loc::snapPose(): hard-set x/y and
+        // re-seed the active filter there, then resync prev so the jump is
+        // NOT fed to predict() as motion. Skip the rest of this tick.
+        //
+        // HEADING IS NEVER SNAPPED. The IMU is the heading authority (design
+        // decision #1); the filter only solves x,y. We keep the current
+        // chassis heading and re-seed the filter with that same heading, so
+        // a subsequent turnToHeading() targets the trusted IMU angle, not the
+        // filter's (position-weighted, slightly biased) theta estimate.
+        if (reseedReq) {
+            const double curDeg = chassis.getPose().theta; // IMU-tracked heading
+            const double thr     = curDeg * PI / 180.0;
+            chassis.setPose(reseedX, reseedY, curDeg);
+            if (method == loc::Method::MCL) {
+                mcl::init(filter, reseedX, reseedY, thr, 2.0, 5.0 * PI / 180.0);
+            } else {
+                ekf.x = reseedX; ekf.y = reseedY; ekf.theta = thr;
+            }
+            prev = chassis.getPose();
+            reseedReq = false;
+            pros::delay(20);
+            continue;
+        }
+
         lemlib::Pose cur = chassis.getPose();
         const double dx = cur.x - prev.x;
         const double dy = cur.y - prev.y;
@@ -119,7 +153,11 @@ void loop(void*) {
 
             latest.x = filter.x_mean;
             latest.y = filter.y_mean;
-            latest.theta_deg = filter.theta_mean * 180.0 / PI;
+            // Report the IMU heading, NOT filter.theta_mean. The filter only
+            // solves x,y; its particle-heading mean drifts a couple degrees
+            // off the IMU after position-weighted resampling, which showed up
+            // as a misleading "est" theta. Heading is IMU-authoritative.
+            latest.theta_deg = cur.theta;
             latest.var_xy = filter.var_xy;
             latest.extra  = filter.n_eff;
             latest.method = loc::Method::MCL;
@@ -190,5 +228,27 @@ void stop() {
 bool active() { return running; }
 
 Estimate estimate() { return latest; }
+
+bool snapPose(int settle_ms, double max_var) {
+    if (!running) return false;
+
+    // Let the filter converge on the stationary wall readings before we
+    // trust it. The robot must actually be stopped when this is called.
+    if (settle_ms > 0) pros::delay(settle_ms);
+
+    const Estimate e = latest;
+    const bool confident =
+        e.var_xy < max_var &&
+        (e.method != Method::MCL || e.extra > (double)mcl::N * 0.5);
+    if (!confident) return false;
+
+    // Hand the snap to the task and wait (bounded) for it to apply.
+    reseedX   = e.x;
+    reseedY   = e.y;
+    reseedDeg = e.theta_deg;
+    reseedReq = true;
+    for (int waited = 0; reseedReq && waited < 200; waited += 5) pros::delay(5);
+    return !reseedReq;
+}
 
 } // namespace loc
