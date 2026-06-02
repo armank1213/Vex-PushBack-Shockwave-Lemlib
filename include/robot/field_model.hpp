@@ -3,15 +3,14 @@
 #include <cmath>
 
 // ─────────────────────────────────────────────────────────────────────
-// FIELD + SENSOR GEOMETRY — the ONE place to tune localization.
+// Field and sensor geometry. The single place to tune localization.
 //
 // Frame: field-absolute inches, (0,0) = red-side bottom-left corner.
 // +X = right, +Y = away from red driver. Heading theta = 0 faces +Y,
 // CW positive (LemLib convention); forward unit vector = (sin th, cos th).
 //
-// Robot BODY frame (used to place the sensors): bx = +right, by = +front.
-// At heading 0 the body axes line up with the world axes, so the front
-// sensor (by>0) sticks out toward +Y, the right sensor (bx>0) toward +X.
+// Robot body frame: bx = +right, by = +front. At heading 0 the body axes
+// align with the world axes.
 // ─────────────────────────────────────────────────────────────────────
 
 namespace field {
@@ -19,43 +18,32 @@ namespace field {
 constexpr double PI        = 3.14159265358979323846;
 constexpr double MM_PER_IN = 25.4;
 
-// Field interior, wall-inside-face to wall-inside-face. The field is 144"
-// outer but the distance sensors see the interior walls ~140.43" apart.
-// CANONICAL field size — everything else aliases this.
+// Field interior, wall-inside-face to wall-inside-face (sensors see the
+// ~140.43" interior, not the 144" outer). Canonical size; everything aliases it.
 inline constexpr double FIELD_IN = 140.43;
 
-// A perimeter distance sensor's mounting, MEASURED ON THE REAL ROBOT.
-//   bx, by : position of the sensor's FACE (the lens it shoots from),
-//            in inches, from the robot's tracking center. bx = +right,
-//            by = +front. Measure with a ruler in BOTH axes.
-//   dir    : direction the sensor points, RELATIVE to robot heading, in
-//            radians. front = 0, right = +PI/2, back = PI, left = -PI/2.
-//
-// Why both axes: against a flat wall hit head-on, only the along-beam
-// distance matters, so the old single offset was fine WHEN the robot was
-// square to the wall. The moment the robot is rotated (or a beam grazes a
-// corner / clips the long goal), the sensor's sideways position changes
-// what it sees. Modeling the true 2-D face position makes the prediction
-// exact at any heading — and you tune it by measuring, not guessing.
+// A perimeter distance sensor's mounting, measured on the real robot.
+//   bx, by : sensor face position from the tracking center, inches
+//            (bx = +right, by = +front).
+//   dir    : pointing direction relative to heading, radians
+//            (front = 0, right = +PI/2, back = PI, left = -PI/2).
+// Modeling the true 2-D face position keeps the prediction exact at any
+// heading, not just when the robot is square to a wall.
 struct SensorMount {
     double bx;   // inches, +right of center
     double by;   // inches, +front of center
     double dir;  // radians, relative to heading
 };
 
-// ===== MEASURE THESE FOUR ON YOUR ROBOT =====
-// Replace bx/by with a tape-measure reading from the tracking center to
-// each sensor's lens. The by (front/back) and bx (left/right) magnitudes
-// below are the old center-offset values as a starting point; the missing
-// perpendicular component currently assumed 0 is what you should fill in.
+// Measured per sensor: bx/by are tape-measure readings from the tracking
+// center to each sensor lens; dir is the cardinal the sensor faces.
 inline constexpr SensorMount FRONT = { 0.00,  7.5, 0.0      };
 inline constexpr SensorMount BACK  = { 0.00, -7.75, PI       };
 inline constexpr SensorMount LEFT  = {-5.00,  -6.00, -PI / 2.0 };
 inline constexpr SensorMount RIGHT = { 5.00,  -6.00,  PI / 2.0 };
-// World pose of a sensor face + the world angle it points, given the
-// robot pose (X, Y, th[rad]). Rotation of body (bx,by) into world:
-//   wx = X + bx*cos th + by*sin th
-//   wy = Y - bx*sin th + by*cos th
+
+// World pose of a sensor face and the world angle it points, given the
+// robot pose (X, Y, th[rad]).
 inline void sensor_world(double X, double Y, double th,
                          const SensorMount& m,
                          double& sx, double& sy, double& sang) {
@@ -65,10 +53,8 @@ inline void sensor_world(double X, double Y, double th,
     sang = th + m.dir;
 }
 
-// Center-to-wall scalar offset along the sensor's pointing axis. Equals
-// the projection of the face position onto the pointing direction. Used
-// by the cardinal-snap start-pose solver (where the perpendicular offset
-// does not affect a head-on flat-wall reading).
+// Center-to-wall scalar offset along the sensor's pointing axis, used by the
+// cardinal-snap start-pose solver:
 //   measured_center_to_wall = raw_in + along_offset(m)
 inline double along_offset(const SensorMount& m) {
     return m.bx * std::sin(m.dir) + m.by * std::cos(m.dir);
@@ -90,11 +76,9 @@ inline double raycast(double rx, double ry, double angle, int* out_wall = nullpt
     return t;
 }
 
-// Angle (rad) between a sensor ray and the head-on normal of the wall it
-// hit. 0 = perpendicular (ideal), large = grazing/unreliable. Head-on ray
-// directions per wall, in (sin a, cos a) convention:
-//   wall 0 (+X): a = +PI/2   wall 1 (-X): a = -PI/2
-//   wall 2 (+Y): a = 0       wall 3 (-Y): a = PI
+// Angle (rad) between a sensor ray and the head-on normal of the wall it hit.
+// 0 = perpendicular (ideal), large = grazing/unreliable. Head-on directions:
+//   wall 0 (+X): +PI/2   wall 1 (-X): -PI/2   wall 2 (+Y): 0   wall 3 (-Y): PI
 inline double grazing_angle(double sensor_angle, int wall) {
     double normal = 0.0;
     switch (wall) {
@@ -111,27 +95,23 @@ inline double grazing_angle(double sensor_angle, int wall) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// STATIC OBSTACLE MAP (field-absolute inches).
+// Static obstacle map (field-absolute inches).
 //
-// The 4 perimeter sensors sit at 4–9.25" height. At that height the goals
-// are NOT solid columns: a beam hits the long-goal LEGS, the center-goal
-// support, or a matchload cylinder, and otherwise passes UNDER the elevated
-// troughs / X-arms (which live at 12"+). So we map only the cross-section
-// that is solid in the sensor band.
+// At the 4-9.25" sensor height the goals are not solid columns: a beam hits
+// the long-goal legs, the center-goal support, or a matchload cylinder, and
+// otherwise passes under the elevated troughs/arms (12"+). We map only that
+// solid cross-section.
 //
 // These shapes are used for REJECTION, not positive localization. With only
-// 4 beams you cannot reliably fix position off a ~2" leg, and the center is
-// a keep-out zone the robot never enters. A beam whose ray hits one of these
-// carries no wall information, so the filter IGNORES it instead of mistaking
-// the goal for a wall (the exact bug this fixes). Position fixes still come
-// from the 4 flat perimeter walls.
+// 4 beams you cannot reliably fix position off a ~2" leg, and the center is a
+// keep-out zone. A beam that hits one carries no wall information, so the
+// filter ignores it. Position fixes come from the 4 flat perimeter walls.
 //
 // Geometry: VEX field spec 276-9142 + bench measurements.
 //   long-goal center  23.5" in from each side wall, y-centered at 70.2
 //   long-goal legs    41.35" apart in Y; footprint 3"(X) x 9"(Y) each
 //   center goal       one 22.5"x22.5" keep-out box at field center
 //   matchloads        23.5" in, at y = 23.44 / 116.97; cylinder r = 2.25"
-// NOTE: leg footprint assumes 9" along Y (goal length) x 3" across X.
 // ─────────────────────────────────────────────────────────────────────
 
 struct Rect   { double x_min, y_min, x_max, y_max; };
@@ -163,8 +143,8 @@ inline constexpr Circle OBSTACLE_CIRCLES[] = {
     { LG_RX, 116.97, 2.25 },
 };
 
-// Ray (origin rx,ry; unit dir dx,dy) vs axis-aligned rect. On a t>0 hit,
-// writes the entry distance to t_out and returns true (slab method).
+// Ray (origin rx,ry; unit dir dx,dy) vs axis-aligned rect (slab method). On a
+// t>0 hit, writes the entry distance to t_out and returns true.
 inline bool ray_rect(double rx, double ry, double dx, double dy,
                      const Rect& r, double& t_out) {
     double tmin = -1e30, tmax = 1e30;
@@ -205,11 +185,10 @@ inline bool ray_circle(double rx, double ry, double dx, double dy,
     return true;
 }
 
-// Raycast against the walls AND the static obstacles. Returns the nearest
+// Raycast against the walls and the static obstacles, returning the nearest
 // hit distance. *hit_obstacle is set true when a mapped obstacle is closer
-// than the wall — i.e. the reading is looking at a goal/matchload and should
-// be IGNORED rather than matched to a wall. *out_wall is the wall index (see
-// raycast) when a wall is nearest, or -1 when an obstacle is nearest.
+// than the wall (the reading is looking at a goal/matchload and should be
+// ignored). *out_wall is the wall index when a wall is nearest, else -1.
 inline double raycast_map(double rx, double ry, double angle,
                           bool* hit_obstacle = nullptr, int* out_wall = nullptr) {
     int wall = -1;

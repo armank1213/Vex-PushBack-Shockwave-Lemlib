@@ -1,19 +1,17 @@
 #pragma once
 
-// Background localization for hand-coded autons. Runs EITHER an MCL
-// particle filter or a 3-state EKF as a background task, fusing odometry
-// with the 4 perimeter distance sensors, and (optionally) nudging
-// chassis.setPose toward the estimate so your normal moveTo*/turnTo*
-// calls land on true FIELD-ABSOLUTE positions.
+// Background localization for hand-coded autons. Runs an MCL particle filter
+// or a 3-state EKF as a background task, fusing odometry with the 4 perimeter
+// distance sensors, and optionally nudging chassis.setPose toward the estimate
+// so normal moveTo*/turnTo* calls land on true field-absolute positions.
 //
-// Usage (correction ON — production):
-//   loc::start(fieldX, fieldY, fieldDeg);          // MCL, corrects pose
+// Correction ON (production):
+//   loc::start(fieldX, fieldY, fieldDeg);
 //   chassis.moveToPoint(...); chassis.turnToHeading(...);
 //   loc::stop();
 //
-// Usage (correction OFF — testing): the task only ESTIMATES; it does not
-// touch chassis pose. Compare loc::estimate() against LemLib odom and
-// physical ground truth to see if the filter tracks reality.
+// Correction OFF (testing): the task only estimates, never touching chassis
+// pose. Compare loc::estimate() against odom + ground truth.
 //   loc::start(24, 24, 0, loc::Method::MCL, /*correct=*/false);
 //
 // Coords MUST be field-absolute (0,0 = red-side bottom-left, 144").
@@ -26,7 +24,7 @@ struct Estimate {
     double x        = 0;   // inches, field frame
     double y        = 0;
     double theta_deg = 0;
-    double var_xy   = 0;   // position variance proxy (in^2); lower = more confident
+    double var_xy   = 0;   // position variance proxy (in^2); lower = better
     double extra    = 0;   // MCL: effective sample size. EKF: 0.
     Method method   = Method::MCL;
     bool   corrected = false; // did the last tick nudge chassis pose?
@@ -41,18 +39,13 @@ bool active();
 // Latest filter summary (updated every task tick).
 Estimate estimate();
 
-// Discrete one-shot correction for hand-coded routes. Call this ONLY when
-// the robot is STOPPED at a waypoint (i.e. right after a blocking move
-// returns). It:
-//   1. waits settle_ms so the filter converges on the stationary readings,
-//   2. checks the estimate is confident (var_xy < max_var, and for MCL the
-//      effective sample size is healthy),
-//   3. if so, hard-snaps chassis pose to the estimate AND re-seeds the
-//      filter there — done inside the task so the snap isn't mis-read as
-//      motion. Returns true if a correction was applied, false if the
-//      filter wasn't confident (pose left untouched).
-// Works whether the task was started with correct=true or false; for the
-// discrete-waypoint pattern start it with correct=false so the continuous
+// Discrete one-shot correction. Call ONLY when the robot is stopped at a
+// waypoint (right after a blocking move). It waits settle_ms, checks the
+// estimate is confident (var_xy < max_var, and for MCL a healthy sample
+// size), then hard-snaps x/y and re-seeds the filter — in-task, so the snap
+// isn't mis-read as motion. Heading is left on the IMU. Returns true if a
+// correction was applied, false if the filter wasn't confident.
+// For this pattern start the task with correct=false so the continuous
 // nudger stays out of your moves.
 bool snapPose(int settle_ms = 200, double max_var = 4.0);
 

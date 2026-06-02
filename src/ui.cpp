@@ -94,7 +94,7 @@ void initializeUI() {
     right_button();
     skills_button();
 
-    // Create a pros task that updates the vertical and horizontal rotation sensor measurements on the brain screen
-    pros::Task xyt_update(update_xyt_labels, nullptr, (uint32_t)TASK_PRIORITY_MAX, (uint16_t)TASK_STACK_DEPTH_DEFAULT); // prev task priority default
+    // Background task that refreshes the pose labels on the brain screen.
+    pros::Task xyt_update(update_xyt_labels, nullptr, (uint32_t)TASK_PRIORITY_MAX, (uint16_t)TASK_STACK_DEPTH_DEFAULT);
 }
 

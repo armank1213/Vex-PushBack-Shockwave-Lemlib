@@ -21,8 +21,8 @@ pros::Imu imu(3);
 pros::Rotation vertical_rotation(-11);
 pros::Rotation horizontal_rotation(20);
 
-//Trilateral Sensors
-pros::Distance ldist_sens(9); 
+// Perimeter distance sensors (localization)
+pros::Distance ldist_sens(9);
 pros::Distance rdist_sens(4); 
 pros::Distance fdist_sens(5);
 pros::Distance bdist_sens(6);

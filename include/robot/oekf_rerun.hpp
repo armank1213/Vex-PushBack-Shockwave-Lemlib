@@ -20,9 +20,9 @@ struct State {
                       { 0.0,  0.0, 0.3}};
 };
 
-// One distance reading worth fusing. The sensor's body-frame mount (face
-// position + pointing direction) is taken from field_model.hpp; the ray is
-// cast from the sensor's true world position using the EKF's current pose.
+// One distance reading to fuse. The mount (field_model.hpp) gives the
+// sensor's body-frame face position + pointing; the ray is cast from its
+// true world position using the EKF's current pose.
 struct WallObs {
     field::SensorMount mount;    // measured sensor geometry
     double raw_mm;               // VEX Distance reading (sensor face -> wall, mm)
@@ -41,7 +41,7 @@ void predict(State& s,
 // returns false if reading was rejected.
 bool update(State& s, const WallObs& z);
 
-// Top-level entry. Reads /usd/dtData.txt, replays the recorded run with
+// Top-level entry: reads /usd/dtData.txt and replays the recorded run with
 // EKF correction from the 4 perimeter distance sensors.
 void run();
 

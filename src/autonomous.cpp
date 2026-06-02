@@ -11,12 +11,10 @@
 #include "robot/start_pose.hpp" // IWYU pragma: keep
 #include "lemlib/asset.hpp" // IWYU pragma: keep
 
-// EKF replay lives in src/oekf_rerun.cpp. See robot/oekf_rerun.hpp.
+// EKF/MCL replay lives in src/oekf_rerun.cpp / src/mcl_rerun.cpp.
 //
 // MCL pose-correction for hand-coded autons: bracket your moves with
-// loc::start(fieldX, fieldY, fieldDeg) ... loc::stop(). While running, a
-// background task fuses odom + distance sensors and trims drift so your
-// moveTo*/turnTo* calls land on true field positions. Coords MUST be
+// loc::start(fieldX, fieldY, fieldDeg) ... loc::stop(). Coords MUST be
 // field-absolute (0,0 = red bottom-left, 144"). See corrected_auton().
 
 void angular_tuning() {
@@ -94,29 +92,23 @@ void park_auton() {
 
 
 // ── LOCALIZATION TEST ─────────────────────────────────────────────────
-// Place the robot at a MEASURED field-absolute pose (edit TX/TY/TDEG to
-// match). Put it near a CORNER so at least two walls are within ~75" —
-// the distance sensors max out past that range. Correction is OFF, so the
-// filter only ESTIMATES; compare its estimate to where the robot really is.
+// Place the robot near a corner (so two walls are within sensor range) at
+// heading TDEG. Correction is OFF: the filter only estimates, so you can
+// compare its output to where the robot actually is.
 //
-//   od  = LemLib wheel odometry (x y theta)
-//   est = filter estimate        (x y theta)
-//   var = position variance (shrinks as it gets confident); x = N_eff (MCL)
+//   od  = wheel odometry (x y theta)
+//   est = filter estimate (x y theta)
+//   var = position variance (shrinks as it gets confident); n = N_eff (MCL)
 //
 // Tests:
-//  1. Robot still at (TX,TY): est should sit at (TX,TY), var should shrink.
-//     If est drifts off → sensor offsets or field size (144 vs 140.43) wrong.
-//  2. Seed wrong on purpose (set TX 12" off): est should converge back to
-//     the true spot using the walls. Proves the update step works.
+//  1. Held still: est should sit at the true coord, var should shrink.
+//  2. Seed wrong on purpose: est should converge back using the walls.
 //  3. Hand-push the robot: est should track the new position.
-//  4. Swap M to loc::Method::EKF and repeat — compare EKF vs MCL.
+//  4. Swap M to loc::Method::EKF and compare.
 void localization_test() {
-    // TDEG = the cardinal heading you physically placed the robot at.
-    // Odom no longer starts at a hard-coded number: we read the perimeter
-    // distance sensors to infer the field-absolute start pose, then seed
-    // BOTH the chassis odom AND the filter there (loc::start calls
-    // chassis.setPose internally). So "od" and "est" begin at the same
-    // sensor-measured coordinate and you can watch them track each other.
+    // TDEG is the cardinal heading the robot was placed at. The sensors infer
+    // the field-absolute start pose; loc::start seeds both odom and filter
+    // there, so od and est begin at the same coordinate.
     const double TDEG = 0;
     const loc::Method M = loc::Method::MCL;       // swap to ::EKF to test EKF
 
@@ -138,20 +130,18 @@ void localization_test() {
 }
 
 
-// ── EXAMPLE: normal hand-coded auton WITH MCL correction running ──────
-// Everything here is field-absolute (0,0 = red-side bottom-left, 144").
-// Coords reference real field landmarks (center goal ~70,70; long goals
-// at y≈23 and y≈117). Place the robot at the start pose below, then run.
+// ── EXAMPLE: hand-coded auton with MCL correction running ─────────────
+// Field-absolute coords (0,0 = red-side bottom-left, 144"). Landmarks:
+// center goal ~70,70; long goals at y≈23 and y≈117.
 void corrected_auton() {
-    // Seed pose + spawn the MCL correction task. Robot starts at field
-    // (24, 24) facing +Y (toward blue side).
+    // Seed pose + spawn the MCL correction task.
     loc::start(56.5, 23, 0);
 
     wing.set_value(0);
     limiter.set_value(1);
     matchLoad.set_value(false);
 
-    // Plain LemLib moves — MCL trims drift underneath, no special calls.
+    // Plain LemLib moves — MCL trims drift underneath.
     chassis.moveToPoint(70, 24, 2000, {.forwards = true}, false);   // to bottom long goal
     chassis.turnToHeading(0, 600, {}, false);
     chassis.moveToPose(70, 60, 0, 2500, {.forwards = true}, false); // up toward center goal
@@ -165,20 +155,13 @@ void corrected_auton() {
 
 
 void skills_auton() {
-    //Initial bot state
-    //loc::start(70, 24, 0);
-    // To MCL-correct this auton: (1) replace setPose above with
-    //   loc::start(<field start x>, <field start y>, <field heading>);
-    // (2) rewrite the waypoints below in FIELD-ABSOLUTE coords; and
-    // (3) call loc::stop(); before the function returns.
-    // As written (relative coords from 0,0,0) the sensor gate rejects
-    // everything, so correction would be a no-op.
+    // Field-absolute skills route with discrete snapPose corrections.
     loc::start(70, 24, 0, loc::Method::MCL, false);
     wing.set_value(0);
     limiter.set_value(1);
     matchLoad.set_value(false);
-    //Movement to line up for park (BLOCKING moves: each finishes before the
-    //next starts, so the robot is actually stopped when we snapPose())
+    // Blocking moves: each finishes before the next, so the robot is stopped
+    // when snapPose() runs.
     chassis.moveToPose(70, 30, 0, 1000, {.forwards=true,.lead=0}, false);
     chassis.moveToPose(70,30,90, 1000, {.lead=0}, false);
     loc::snapPose();   // robot fully stopped -> clean reading, x/y only
@@ -203,10 +186,9 @@ void skills_auton() {
 
 
 
-    //Drive into park
+    // Drive into park (disabled):
     //chassis.moveToPoint(18,0,2000,{.forwards=true, .maxSpeed=110, .minSpeed=95},false);
-    // ^ Takes advantage of unintended response during lack of theta value, Also adjusted the speed value to improve consistency.
-    //Pick up blocks that dont clear in park
+    // Pick up blocks that don't clear in park (disabled):
     /*
     intakeMotor.move(-200);
     middleMotor.move(-600);

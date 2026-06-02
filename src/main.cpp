@@ -51,17 +51,13 @@ void autonomous() {
 }
 
 void opcontrol() {
-    //chassis.setPose(0, 0, 0);
-
     leftMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
     rightMotors.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
-    open = false;
-    // Don't open the file here — wait for X press
+    open = false;   // recording file opens on X press, not here
 
-    // Bench localization test (works in driver control). Press UP to toggle:
-    // reads start pose from the distance sensors, runs MCL with correction
-    // OFF, and shows odom vs estimate on the controller while you drive.
+    // Bench localization test: UP toggles MCL (correction OFF) and shows odom
+    // vs estimate on the controller while you drive.
     bool locTestOn = false;
     int  dbgTick   = 0;
 
@@ -87,11 +83,8 @@ void opcontrol() {
             }
         }
 
-        // Cycle the 3 readout lines so we stay under the controller's
-        // print rate limit (~50ms/line).
-        //   od  = LemLib wheel odometry (x y theta)
-        //   est = filter estimate        (x y theta)
-        //   var = position variance; n = effective particle count (MCL)
+        // Cycle the 3 readout lines to stay under the controller's print rate
+        // limit (~50ms/line): od = odom, est = filter estimate, var = variance.
         if (locTestOn) {
             loc::Estimate e = loc::estimate();
             lemlib::Pose  p = chassis.getPose();
@@ -102,13 +95,10 @@ void opcontrol() {
         }
         dbgTick++;
 
-        // Press X to toggle recording ON (open/reopen the file).
-        // On record-start: snap chassis to field-absolute pose by
-        // reading the perimeter distance sensors. Robot must be placed
-        // at its true start position and pointing along its intended
-        // heading before pressing X.
-        // X is also a logged button column — replay-side suppresses the
-        // first-frame phantom toggle by initializing prev_x = true.
+        // X starts recording: snap chassis to a field-absolute pose from the
+        // distance sensors (place the robot at its true start + heading first),
+        // then open the log. X is also a logged column — replay suppresses the
+        // first-frame phantom toggle via prev_x = true.
         if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_X)) {
             if (pros::usd::is_installed()) {
                 lemlib::Pose start = determine_start_pose(0.0);
@@ -119,7 +109,7 @@ void opcontrol() {
                 ofs.open("/usd/dtData.txt", std::ofstream::out | std::ofstream::trunc);
                 if (ofs.is_open()) {
                     open = true;
-                    controller.rumble("."); // optional: confirm to driver
+                    controller.rumble("."); // confirm to driver
                 }
             }
         }

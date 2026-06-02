@@ -18,7 +18,7 @@ namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr const char* DATA_PATH = "/usd/dtData.txt";
 
-// Sensor mount geometry lives in robot/field_model.hpp (field::FRONT, ...).
+// Sensor mount geometry lives in robot/field_model.hpp.
 
 // Replay tuning.
 constexpr int    WAYPOINT_SKIP      = 8;
@@ -37,15 +37,14 @@ constexpr double TIMEOUT_MULTIPLIER = 1.6;
 // Measured top speed at full power. Tune empirically.
 constexpr double MAX_SPEED_IPS = 48.0;
 
-// Distance sensor validity window. VEX V5 Distance: 20-2000 mm range,
-// get()==9999 means no object, confidence only valid above 200 mm.
+// Distance validity window. VEX V5 Distance: 20-2000 mm (9999 = no object),
+// confidence valid only above 200 mm.
 constexpr double DIST_MIN_MM  = 20.0;
 constexpr double DIST_MAX_MM  = 2000.0;
 constexpr double CONF_DIST_MM = 200.0;
 constexpr int    CONF_GATE    = 40;
 
-// Spec-correct validity: in range, and either close (confidence N/A but
-// +/-15 mm) or far with passing confidence.
+// In range, and either close (good to ±15 mm) or far with passing confidence.
 inline bool dist_ok(int raw_mm, int confidence) {
     if (raw_mm < DIST_MIN_MM || raw_mm > DIST_MAX_MM) return false;
     if (raw_mm <= CONF_DIST_MM)                       return true;
@@ -55,14 +54,13 @@ inline bool dist_ok(int raw_mm, int confidence) {
 // Innovation gate: reject obvious wild measurements (in inches).
 constexpr double INNOV_GATE_IN = 14.0;
 
-// Process noise (per tick). Tuned by feel for now.
+// Process noise (per tick).
 constexpr double Q_DIAG[3][3] = {{0.5, 0.0, 0.0},
                                  {0.0, 0.3, 0.0},
                                  {0.0, 0.0, 0.005}};
 
-// Expected sensor-face-to-wall range for a robot pose (x,y,theta) and a
-// sensor mount: place the sensor at its true world position, then raycast.
-// Same geometry the MCL uses (field_model.hpp), so EKF and MCL agree.
+// Expected sensor-face-to-wall range for a pose + mount: place the sensor at
+// its true world position and raycast. Same geometry as MCL (field_model.hpp).
 double expected_range(double x, double y, double th, const field::SensorMount& m,
                       bool* hit_obstacle = nullptr) {
     double sx, sy, sang;
@@ -74,12 +72,9 @@ double expected_range(double x, double y, double th, const field::SensorMount& m
 
 
 // ─── EKF predict ────────────────────────────────────────────────
-// Linear motion model in the state we track directly (we get pose deltas
-// from LemLib odom already, so F = I and the only thing to do is add
-// the delta and inflate P by Q).
-//
-//   x_k|k-1 = x_k-1|k-1 + u_k
-//   P_k|k-1 = F P_k-1|k-1 F^T + Q   ; F = I here
+// Pose deltas come straight from LemLib odom, so F = I: add the delta and
+// inflate P by Q.
+//   x' = x + u ;  P' = P + Q
 void predict(State& s,
              double dx_world,
              double dy_world,
@@ -105,17 +100,16 @@ void predict(State& s,
 bool update(State& s, const WallObs& obs) {
     if (obs.raw_mm < DIST_MIN_MM || obs.raw_mm > DIST_MAX_MM) return false;
 
-    // raw is sensor-face-to-wall; expected_range already accounts for the
-    // sensor's mounted position, so no center offset is added here.
+    // raw is sensor-face-to-wall; expected_range accounts for the mount, so
+    // no center offset is added.
     const double measured = obs.raw_mm / field::MM_PER_IN;
     bool hitObs = false;
     const double expected = expected_range(s.x, s.y, s.theta, obs.mount, &hitObs);
-    // Beam blocked by a mapped goal/matchload: no wall info, skip the update
-    // (also avoids a bad numerical Jacobian across the obstacle edge).
+    // Beam blocked by a mapped obstacle: no wall info, skip (also avoids a bad
+    // Jacobian across the obstacle edge).
     if (hitObs) return false;
     const double innov    = measured - expected;
-    // Innovation gate rejects beams that hit an UNmapped object (loose block,
-    // robot) instead of the mapped wall.
+    // Innovation gate rejects beams that hit an unmapped object.
     if (std::abs(innov) > INNOV_GATE_IN) return false;
 
     // Numerical Jacobian H = [∂h/∂x, ∂h/∂y, ∂h/∂θ].
@@ -167,12 +161,10 @@ bool update(State& s, const WallObs& obs) {
 
 // ─── Replay loop ────────────────────────────────────────────────
 //
-// NOTE on field frame: raycastField assumes (s.x, s.y) live in [0, 144]
-// field-absolute inches. The recorded poses start at chassis.setPose(0,0,0)
-// at the start of opcontrol — so to make the EKF wall update meaningful,
-// the user has to setPose() to the *actual field-absolute* start pose
-// before recording. Until that's wired, the EKF update is a no-op in
-// practice (innovation gate will reject everything).
+// NOTE: the wall update assumes (s.x, s.y) are field-absolute. Recorded poses
+// start at setPose(0,0,0), so unless you setPose() to the real field-absolute
+// start before recording, the innovation gate rejects everything (update is a
+// no-op).
 void run() {
     if (!pros::usd::is_installed()) {
         controller.print(0, 0, "FAIL: no SD card  ");
@@ -291,12 +283,9 @@ void run() {
         double dtheta_w = dtheta_deg_raw * PI / 180.0;
         prevPose = currPose;
         predict(ekf, dx_w, dy_w, dtheta_w, Q_DIAG);
-        // Trust the IMU-backed odom heading; the walls only refine x,y.
-        ekf.theta = currPose.theta * PI / 180.0;
+        ekf.theta = currPose.theta * PI / 180.0;  // IMU owns heading
 
         // ── EKF update from each perimeter sensor ────────────────
-        // Read each sensor once; gate per the spec (close walls allowed
-        // even though confidence is unavailable below 200 mm).
         const int f_mm = fdist_sens.get(), f_cf = fdist_sens.get_confidence();
         const int b_mm = bdist_sens.get(), b_cf = bdist_sens.get_confidence();
         const int l_mm = ldist_sens.get(), l_cf = ldist_sens.get_confidence();
@@ -306,7 +295,7 @@ void run() {
         if (dist_ok(l_mm, l_cf)) update(ekf, {field::LEFT,  (double)l_mm, 3.0});
         if (dist_ok(r_mm, r_cf)) update(ekf, {field::RIGHT, (double)r_mm, 3.0});
 
-        // Only push EKF back into LemLib pose when we're confident.
+        // Push EKF back into LemLib pose only when confident.
         if (ekf.P[0][0] < 0.5 && ekf.P[1][1] < 0.5) {
             chassis.setPose(ekf.x, ekf.y, ekf.theta * 180.0 / PI, false);
             prevPose = chassis.getPose();
@@ -355,8 +344,8 @@ void run() {
                                  (turnRatio > TURN_RATIO_THRESH || dist < SHORT_MOVE_IN);
 
         if (isPureTurn) {
-            // Scan ahead — find the END of the turn sequence so we fire
-            // ONE clean blocking turn, not many micro-turns.
+            // Scan ahead to the end of the turn sequence so we fire one clean
+            // blocking turn, not many micro-turns.
             double finalTurnHeading  = filet;
             std::streampos savedPos  = fs.tellg();
             std::string peekLine;

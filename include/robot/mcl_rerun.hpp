@@ -2,12 +2,11 @@
 
 #include "robot/field_model.hpp"
 
-// Monte Carlo Localization for OEKF-Rerun replay path.
+// Monte Carlo Localization (particle filter) and the SD-route replay path.
 //
-// Frame convention: field-absolute inches, (0,0) = red-side bottom-left
-// corner of the 144" x 144" Pushback field. +X right, +Y away from red
-// driver. LemLib heading convention — theta=0 = +Y, CW positive,
-// internally stored in radians.
+// Frame: field-absolute inches, (0,0) = red-side bottom-left of the 144"
+// field. +X right, +Y away from red driver. Heading theta=0 = +Y, CW
+// positive (LemLib), stored internally in radians.
 
 namespace mcl {
 
@@ -55,35 +54,29 @@ void predict(Filter& f,
 void set_heading(Filter& f, double theta_rad, double sigma_rad);
 
 // Fuse one wall-distance reading.
-//   mount: the sensor's measured body-frame face position + pointing dir
-//          (field::FRONT / BACK / LEFT / RIGHT). The ray is cast from the
-//          sensor's actual world position, so the reading is interpreted
-//          exactly at any heading.
-//   raw_mm: VEX Distance raw reading (sensor face -> wall, mm).
+//   mount: sensor body-frame face position + pointing dir (field::FRONT/...).
+//          The ray is cast from the sensor's true world position.
+//   raw_mm: VEX Distance reading (sensor face -> wall, mm).
 //   confidence: VEX get_confidence(), 0..63.
 //   R_noise: measurement variance (in^2).
-// Returns true if reading was fused, false if gated out (range, low
-// confidence, grazing wall, or an obstacle hit shorter than the wall).
+// Returns false if gated out (range, low confidence, grazing, or obstacle).
 bool update(Filter& f,
             const field::SensorMount& mount,
             int raw_mm,
             int confidence,
             double R_noise);
 
-// Low-variance resampler (Thrun, p.110). Only call when n_eff drops
-// below N/2 — caller is responsible for the threshold.
+// Low-variance resampler (Thrun, p.110). Caller gates on n_eff < N/2.
 void resample(Filter& f);
 
 // Recompute mean, n_eff, var_xy from current weights.
 void summarize(Filter& f);
 
-// Top-level entry. Reads /usd/dtData.txt, replays with MCL correction.
-// start_pose_field is the user-supplied (or distance-sensor-inferred)
-// field-absolute pose at the start of the run.
+// Top-level entry: reads /usd/dtData.txt and replays it with MCL correction,
+// starting from the given field-absolute pose.
 void rerun(double start_x_in, double start_y_in, double start_theta_deg);
 
 } // namespace mcl
 
-// Flat entry for autonomous() to call. Auto-detects start pose via
-// determine_start_pose() with theta=0 assumption.
+// Flat entry for autonomous(); auto-detects start pose (theta=0 assumption).
 void mcl_rerun();

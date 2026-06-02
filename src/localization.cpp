@@ -13,22 +13,21 @@ namespace {
 
 constexpr double PI = 3.14159265358979323846;
 
-// Sensor mount geometry lives in robot/field_model.hpp (field::FRONT, ...).
+// Sensor mount geometry lives in robot/field_model.hpp.
 
 constexpr int    CONF_GATE = 40;
-constexpr double CONF_DIST_MM = 200.0;   // VEX: confidence only valid above this
+constexpr double CONF_DIST_MM = 200.0;   // confidence only valid above this
 constexpr double DIST_MIN_MM  = 20.0;
-constexpr double DIST_MAX_MM  = 2000.0;  // get()==9999 => no object
+constexpr double DIST_MAX_MM  = 2000.0;  // 9999 => no object
 constexpr double R_SENSOR  = 3.0;
 constexpr double ALPHAS[4] = {0.05, 0.02, 0.02, 0.05};
 constexpr double NEFF_THRESH = (double)mcl::N / 2.0;
 
-// Heading slack around the IMU. The IMU is the heading authority; the
-// filters only solve x,y. 1 degree of jitter keeps a little diversity.
+// IMU is the heading authority; filters only solve x,y. A little jitter
+// around the IMU keeps particle diversity.
 constexpr double HEADING_JITTER_RAD = 1.0 * PI / 180.0;
 
-// Spec-correct distance validity (used for the EKF path, which gates here;
-// the MCL update() applies the same rule internally).
+// Distance validity gate (EKF path; MCL applies the same rule internally).
 bool dist_ok(int raw_mm, int confidence) {
     if (raw_mm < DIST_MIN_MM || raw_mm > DIST_MAX_MM) return false;
     if (raw_mm <= CONF_DIST_MM)                       return true;
@@ -41,8 +40,8 @@ constexpr double Q_DIAG[3][3] = {{0.5, 0.0, 0.0}, {0.0, 0.3, 0.0}, {0.0, 0.0, 0.
 constexpr double VAR_FULL_TRUST = 4.0;   // in^2
 constexpr double CORR_GAIN      = 0.35;
 
-// Shared state (single background task — plain globals, races acceptable
-// for a mock; LemLib pose access is mutex-guarded internally).
+// Shared state for the single background task (LemLib pose access is
+// mutex-guarded internally).
 mcl::Filter  filter;
 oekf::State  ekf;
 loc::Method  method = loc::Method::MCL;
@@ -53,10 +52,8 @@ pros::Task*  task    = nullptr;
 volatile bool running = false;
 
 // Discrete-correction reseed request. loc::snapPose() fills these and sets
-// the flag; the loop consumes it at the top of the next tick so the snap
-// (chassis.setPose + filter re-seed + prev resync) happens INSIDE the task.
-// Doing it in-task avoids racing the filter and stops the snap from being
-// read as a giant motion delta on the following predict().
+// the flag; the loop applies it at the top of the next tick, in-task, so the
+// snap isn't read as a motion delta by the following predict().
 volatile bool reseedReq = false;
 double        reseedX = 0.0, reseedY = 0.0, reseedDeg = 0.0;
 
@@ -75,9 +72,8 @@ void applyCorrection(const lemlib::Pose& cur, double ex, double ey, double eth_d
 
     const double nx  = cur.x + (ex - cur.x) * trust;
     const double ny  = cur.y + (ey - cur.y) * trust;
-    // Heading is left on the IMU (design decision #1): the filter only solves
-    // x,y, so nudging theta toward the filter estimate would inject angle
-    // error and make turnToHeading() land short/long. Keep cur.theta.
+    // Heading stays on the IMU: nudging theta toward the filter would inject
+    // angle error and make turnToHeading() land short/long.
     chassis.setPose(nx, ny, cur.theta);
     latest.corrected = true;
 }
@@ -85,17 +81,12 @@ void applyCorrection(const lemlib::Pose& cur, double ex, double ey, double eth_d
 void loop(void*) {
     lemlib::Pose prev = chassis.getPose();
     while (running) {
-        // Discrete snap requested by loc::snapPose(): hard-set x/y and
-        // re-seed the active filter there, then resync prev so the jump is
-        // NOT fed to predict() as motion. Skip the rest of this tick.
-        //
-        // HEADING IS NEVER SNAPPED. The IMU is the heading authority (design
-        // decision #1); the filter only solves x,y. We keep the current
-        // chassis heading and re-seed the filter with that same heading, so
-        // a subsequent turnToHeading() targets the trusted IMU angle, not the
-        // filter's (position-weighted, slightly biased) theta estimate.
+        // Discrete snap from loc::snapPose(): hard-set x/y, re-seed the
+        // filter, resync prev so the jump isn't fed to predict() as motion.
+        // Heading is never snapped — keep the IMU angle so a following
+        // turnToHeading() targets the trusted heading, not the filter's.
         if (reseedReq) {
-            const double curDeg = chassis.getPose().theta; // IMU-tracked heading
+            const double curDeg = chassis.getPose().theta; // IMU heading
             const double thr     = curDeg * PI / 180.0;
             chassis.setPose(reseedX, reseedY, curDeg);
             if (method == loc::Method::MCL) {
@@ -118,15 +109,13 @@ void loop(void*) {
         const double dth = dth_deg * PI / 180.0;
         prev = cur;
 
-        // Read every sensor ONCE per tick (get() and get_confidence() are
-        // separate I2C round-trips; calling them twice can return mismatched
-        // frames). raw is mm; confidence is 0..63.
+        // Read each sensor once per tick (get() and get_confidence() are
+        // separate I2C calls; reading twice risks mismatched frames).
         const int f_mm = fdist_sens.get(),  f_cf = fdist_sens.get_confidence();
         const int b_mm = bdist_sens.get(),  b_cf = bdist_sens.get_confidence();
         const int l_mm = ldist_sens.get(),  l_cf = ldist_sens.get_confidence();
         const int r_mm = rdist_sens.get(),  r_cf = rdist_sens.get_confidence();
 
-        // The IMU is the heading authority; the filters only solve x,y.
         const double imu_rad = cur.theta * PI / 180.0;
 
         if (method == loc::Method::MCL) {
@@ -136,13 +125,12 @@ void loop(void*) {
             const double dl = dx * std::cos(th) - dy * std::sin(th);
             mcl::predict(filter, df, dl, dth, ALPHAS);
 
-            // Pin particle orientation to the IMU before the wall updates so
-            // ray/wall association uses the trusted heading, not drift.
+            // Pin particle heading to the IMU before the wall updates so
+            // ray/wall association uses the trusted heading.
             mcl::set_heading(filter, imu_rad, HEADING_JITTER_RAD);
 
-            // update() applies the spec-correct gate, the obstacle reject,
-            // and the true 2-D sensor geometry internally (field_model.hpp),
-            // so we just hand it the mount + reading.
+            // update() applies the gate, obstacle reject, and 2-D sensor
+            // geometry internally; just hand it the mount + reading.
             mcl::update(filter, field::FRONT, f_mm, f_cf, R_SENSOR);
             mcl::update(filter, field::BACK,  b_mm, b_cf, R_SENSOR);
             mcl::update(filter, field::LEFT,  l_mm, l_cf, R_SENSOR);
@@ -153,10 +141,8 @@ void loop(void*) {
 
             latest.x = filter.x_mean;
             latest.y = filter.y_mean;
-            // Report the IMU heading, NOT filter.theta_mean. The filter only
-            // solves x,y; its particle-heading mean drifts a couple degrees
-            // off the IMU after position-weighted resampling, which showed up
-            // as a misleading "est" theta. Heading is IMU-authoritative.
+            // Report the IMU heading, not filter.theta_mean (which drifts a
+            // couple degrees after position-weighted resampling).
             latest.theta_deg = cur.theta;
             latest.var_xy = filter.var_xy;
             latest.extra  = filter.n_eff;
@@ -164,10 +150,9 @@ void loop(void*) {
             applyCorrection(cur, latest.x, latest.y, latest.theta_deg, latest.var_xy);
 
         } else {
-            // EKF wants WORLD-frame deltas.
+            // EKF wants world-frame deltas.
             oekf::predict(ekf, dx, dy, dth, Q_DIAG);
-            // Trust the IMU for heading; the walls only refine x,y.
-            ekf.theta = imu_rad;
+            ekf.theta = imu_rad;   // IMU owns heading; walls refine x,y
             if (dist_ok(f_mm, f_cf)) oekf::update(ekf, {field::FRONT, (double)f_mm, R_SENSOR});
             if (dist_ok(b_mm, b_cf)) oekf::update(ekf, {field::BACK,  (double)b_mm, R_SENSOR});
             if (dist_ok(l_mm, l_cf)) oekf::update(ekf, {field::LEFT,  (double)l_mm, R_SENSOR});
@@ -182,7 +167,7 @@ void loop(void*) {
             applyCorrection(cur, latest.x, latest.y, latest.theta_deg, latest.var_xy);
         }
 
-        // Resync prev if we corrected, so next delta is odom-only.
+        // Resync prev after a correction so the next delta is odom-only.
         if (latest.corrected) prev = chassis.getPose();
 
         pros::delay(20);
@@ -232,8 +217,8 @@ Estimate estimate() { return latest; }
 bool snapPose(int settle_ms, double max_var) {
     if (!running) return false;
 
-    // Let the filter converge on the stationary wall readings before we
-    // trust it. The robot must actually be stopped when this is called.
+    // Let the filter converge on the stationary readings. The robot must
+    // actually be stopped when this is called.
     if (settle_ms > 0) pros::delay(settle_ms);
 
     const Estimate e = latest;
@@ -243,7 +228,8 @@ bool snapPose(int settle_ms, double max_var) {
     if (!confident) return false;
 
     // Hand the snap to the task and wait (bounded) for it to apply.
-    reseedX   = e.x;
+    reseedX   = e.x;  // consumed in-task at the next tick
+
     reseedY   = e.y;
     reseedDeg = e.theta_deg;
     reseedReq = true;

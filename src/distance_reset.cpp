@@ -41,13 +41,10 @@ const SensorOffsets sensor_offsets;
 
 } // anonymous namespace
 
-// One-pass pose-update step using vertical odom pod + wall correction
-// from the three perimeter distance sensors. Intended to be called
-// repeatedly by a higher-level task. Returns the new (x, y).
-//
-// State is held in function-local statics so that hardware (the
-// Rotation/IMU/Distance globals) is fully constructed before any
-// sensor call happens — avoids the static-init order fiasco.
+// One-pass pose update: vertical odom pod + wall snap from three perimeter
+// distance sensors. Call repeatedly from a higher-level task; returns (x, y).
+// State lives in function-local statics so the hardware globals are fully
+// constructed before any sensor call (avoids static-init order issues).
 std::pair<double, double> reset_distance() {
     static bool initialized = false;
     static double x = -54.422;
@@ -77,13 +74,12 @@ std::pair<double, double> reset_distance() {
     x = x + delta_s * cos(theta_rad);
     y = y + delta_s * sin(theta_rad);
 
-    // distance
     double DL = ldist_sens.get_distance();
     double DR = rdist_sens.get_distance();
     double DB = bdist_sens.get_distance();
 
-    // Wall snap — only when heading aligns with that wall's normal,
-    // within ANGLE_TOLERANCE degrees.
+    // Wall snap — only when heading aligns with the wall's normal, within
+    // ANGLE_TOLERANCE degrees.
     if (DL > 0 && angle_error(theta, 90.0) < ANGLE_TOLERANCE) {
         x = DL - sensor_offsets.left;
     }
@@ -94,7 +90,7 @@ std::pair<double, double> reset_distance() {
         y = DB - sensor_offsets.back;
     }
 
-    // in case of jumps or tipping (exponential smoothing)
+    // Exponential smoothing to absorb jumps/tipping.
     x = x_prev + 0.3 * (x - x_prev);
     y = y_prev + 0.3 * (y - y_prev);
 
