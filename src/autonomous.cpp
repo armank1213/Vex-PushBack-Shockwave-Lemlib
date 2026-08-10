@@ -162,12 +162,117 @@ void skills_auton() {
     matchLoad.set_value(false);
     // Blocking moves: each finishes before the next, so the robot is stopped
     // when snapPose() runs.
-    chassis.moveToPose(70, 30, 0, 1000, {.forwards=true,.lead=0}, false);
-    chassis.moveToPose(70,30,90, 1000, {.lead=0}, false);
-    loc::snapPose();   // robot fully stopped -> clean reading, x/y only
-    chassis.moveToPose(118,30,90,2000,{.forwards=true,.lead=0},false);
+    chassis.moveToPose(70, 27, 0, 500, {.forwards=true,.lead=0}, false);
     loc::snapPose();
+    chassis.moveToPose(12, 27, -90, 1700, {.forwards=true,.lead=0}, false);
+    loc::snapPose();
+    chassis.moveToPose(12,115,0, 2500, {.lead=0}, false);
+    loc::snapPose();   // robot fully stopped -> clean reading, x/y only
+    chassis.moveToPose(26,119,45,1000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(27,119,0,1000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    matchLoad.set_value(true);
+    pros::delay(500);
+    chassis.moveToPose(26,149,0,700,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    chassis.moveToPose(26,152,0,500,{.forwards=true,.lead=0},true);
+    chassis.moveToPose(26,154,0,200,{.forwards=true,.lead=0},false);
+    chassis.moveToPose(26,152,0,200,{.forwards=true,.lead=0},false);
+    chassis.moveToPose(26,154,0,200,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    pros::delay(2100);
+    intakeMotor.move(0);
+    middleMotor.move(0);
+    outtakeMotor.move(0);
+    chassis.moveToPose(27,110,0,1000,{.forwards=false,.lead=0},false);
+    loc::snapPose();
+    matchLoad.set_value(false);
+    chassis.moveToPose(27,119,90,700,{.forwards=false,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(88,106.5,90,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(88,106.5,55,800,{.forwards=true,.lead=0},false);//
+    loc::snapPose();
+    chassis.moveToPose(73,93,90,1200,{.forwards=false,.lead=0},false);
+    loc::snapPose();
+    limiter.set_value(0);
+    intakeMotor.move(200);
+    middleMotor.move(600);
+    outtakeMotor.move(200);
+    pros::delay(300);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    pros::delay(2000);
+    intakeMotor.move(0);
+    middleMotor.move(0);
+    outtakeMotor.move(0);
+    chassis.moveToPose(88,93,90,800,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(88,93,135,500,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(42.5,118,-86,1200,{.forwards=false,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(15.5,114,-90,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    matchLoad.set_value(true);
+    pros::delay(200);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    chassis.moveToPose(5,115,-90,500,{.forwards=true,.lead=0},true);
+    chassis.moveToPose(2,115,-90,500,{.forwards=true,.lead=0},false);
+    chassis.moveToPose(5,115,-90,500,{.forwards=true,.lead=0},false);
+    chassis.moveToPose(2,115,-90,500,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    limiter.set_value(1);
+    pros::delay(2100);
+    intakeMotor.move(0);
+    middleMotor.move(0);
+    outtakeMotor.move(0);
+    chassis.moveToPose(15.5,114,-90,2000,{.forwards=true,.lead=0},false);
+    matchLoad.set_value(false);
+
+    chassis.moveToPose(88,106.5,-90,2000,{.forwards=false,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(88,106.5,55,800,{.forwards=true,.lead=0},false);//
+    loc::snapPose();
+    chassis.moveToPose(73,92,90,1200,{.forwards=false,.lead=0},false);
+    loc::snapPose();
+    limiter.set_value(0);
+    intakeMotor.move(200);
+    middleMotor.move(600);
+    outtakeMotor.move(200);
+    pros::delay(300);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    pros::delay(2000);
+    intakeMotor.move(0);
+    middleMotor.move(0);
+    outtakeMotor.move(0);
+    loc::snapPose();
+    pros::delay(200);
+    intakeMotor.move(-200);
+    middleMotor.move(-600);
+    outtakeMotor.move(-200);
+    chassis.moveToPose(140,94,90,2000,{.forwards=true,.lead=0},true);
+    loc::snapPose();
+    chassis.moveToPose(140,94,180,500,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(140,14,180,2000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(140,14,270,3000,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(70,10,270,1500,{.forwards=true,.lead=0},false);
+    loc::snapPose();
+    chassis.moveToPose(75,0,270,2000,{.forwards=true,.lead=0, .minSpeed=70},false);
     //chassis.moveToPose(120,30,180,100);
+    /*
     chassis.moveToPose(118,20,180,2000,{.forwards=true,.lead=0},false);
     loc::snapPose();
     matchLoad.set_value(true);
@@ -181,7 +286,7 @@ void skills_auton() {
     loc::snapPose();
     chassis.moveToPose(130,30,0,2000,{.forwards=false,.lead=0},false);
     loc::snapPose();
-
+*/
 
 
 
